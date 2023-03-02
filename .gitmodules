@@ -1,0 +1,9 @@
+[submodule "gitleaks"]
+	path = gitleaks
+	url = https://github.com/zricethezav/gitleaks.git
+[submodule "osv-scanner"]
+	path = osv-scanner
+	url = https://github.com/google/osv-scanner.git
+[submodule "rclone"]
+	path = rclone
+	url = https://github.com/rclone/rclone.git
