@@ -11,8 +11,8 @@ jobs:
       matrix:
         image:
         - gitleaks
-        - osv-scanner
-        - rclone
+#         - osv-scanner
+#         - rclone
 
     steps:
       - name: Clone
@@ -26,6 +26,11 @@ jobs:
           # replace the submodule folder with a full repo clone
           rm -rf "$BOOST_IMAGE_NAME"
           git clone ".git/modules/$BOOST_IMAGE_NAME" "$BOOST_IMAGE_NAME"
+
+          remote_url=`GIT_DIR=".git/modules/$BOOST_IMAGE_NAME" git remote get-url origin`
+
+          cd "$BOOST_IMAGE_NAME"
+          git remote set-url origin "$remote_url"
 
       - env:
           BOOST_IMAGE_NAME: ${{ matrix.image }}
@@ -41,10 +46,9 @@ jobs:
           api_token: ${{ secrets.BOOST_API_TOKEN }}
           registry_module: boostsecurityio/trivy-fs
           api_endpoint: https://api.dev.boostsec.io
-          additional_args: --registry https://github.com/boostsecurityio/scanner-testing.git#add-trivy-fs
+          additional_args: --registry https://github.com/boostsecurityio/scanner-testing.git#add-trivy-fs --path $GITHUB_WORKSPACE/$BOOST_IMAGE_NAME
           log_level: DEBUG
           scan_label: ${{ matrix.image }}
-          scan_path: ${{ matrix.image }}
 
       - name: 'trivy-sbom on ${{ matrix.image }}'
         uses: boostsecurityio/boostsec-scanner-github@v4
@@ -52,7 +56,7 @@ jobs:
           api_token: ${{ secrets.BOOST_API_TOKEN }}
           registry_module: boostsecurityio/trivy-sbom
           api_endpoint: https://api.dev.boostsec.io
-          additional_args: --registry https://github.com/boostsecurityio/scanner-testing.git
+          additional_args: --registry https://github.com/boostsecurityio/scanner-testing.git --path $GITHUB_WORKSPACE/$BOOST_IMAGE_NAME
           log_level: DEBUG
           scan_label: ${{ matrix.image }}
           scan_path: ${{ matrix.image }}
