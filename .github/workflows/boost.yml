@@ -33,6 +33,19 @@ jobs:
           cd "$BOOST_IMAGE_NAME"
           docker build -t "$BOOST_IMAGE_NAME" .
 
+      - name: 'trivy-fs on ${{ matrix.image }}'
+        uses: boostsecurityio/boostsec-scanner-github@v4
+        env:
+          BOOST_IMAGE_NAME: ${{ matrix.image }}
+        with:
+          api_token: ${{ secrets.BOOST_API_TOKEN }}
+          registry_module: boostsecurityio/trivy-fs
+          api_endpoint: https://api.dev.boostsec.io
+          additional_args: --registry https://github.com/boostsecurityio/scanner-testing.git#add-trivy-fs
+          log_level: DEBUG
+          scan_label: ${{ matrix.image }}
+          scan_path: ${{ matrix.image }}
+
       - name: 'trivy-sbom on ${{ matrix.image }}'
         uses: boostsecurityio/boostsec-scanner-github@v4
         with:
