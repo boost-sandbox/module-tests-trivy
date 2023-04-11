@@ -27,6 +27,7 @@ jobs:
         with:
           repository: ${{ steps.submodule.outputs.REPO  }}
           ref: ${{ steps.submodule.outputs.SHA  }}
+          fetch-depth: 0
 
       - env:
           BOOST_IMAGE_NAME: ${{ matrix.image }}
