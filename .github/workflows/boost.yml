@@ -34,7 +34,8 @@ jobs:
         run: |
           docker build -t "$BOOST_IMAGE_NAME" .
 
-          echo "BOOST_GIT_HEAD=${{ steps.submodule.outputs.SHA }}" >> $GITHUB_ENV
+          # echo "BOOST_GIT_HEAD=${{ steps.submodule.outputs.SHA }}" >> $GITHUB_ENV
+          echo "BOOST_GIT_FETCH=false" >> $GITHUB_ENV
 
       - name: 'trivy-fs on ${{ matrix.image }}'
         uses: boostsecurityio/boostsec-scanner-github@v4
