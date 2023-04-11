@@ -25,14 +25,16 @@ jobs:
       - name: Clone
         uses: actions/checkout@v3
         with:
-          repository: ${{ steps.submodule.outputs.REPO  }}
-          ref: ${{ steps.submodule.outputs.SHA  }}
+          repository: ${{ steps.submodule.outputs.REPO }}
+          ref: ${{ steps.submodule.outputs.SHA }}
           fetch-depth: 0
 
       - env:
           BOOST_IMAGE_NAME: ${{ matrix.image }}
         run: |
           docker build -t "$BOOST_IMAGE_NAME" .
+
+          echo "BOOST_GIT_HEAD=${{ steps.submodule.outputs.SHA }}" >> $GITHUB_ENV
 
       - name: 'trivy-fs on ${{ matrix.image }}'
         uses: boostsecurityio/boostsec-scanner-github@v4
