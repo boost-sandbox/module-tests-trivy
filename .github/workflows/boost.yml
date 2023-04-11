@@ -20,7 +20,7 @@ jobs:
           API_URL: "/repos/${{ github.repository }}/contents/${{ matrix.image }}"
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh api "$API_URL" | jq -r '{"SHA": .sha, "REPO": .submodule_git_url} | to_entries[] | join("=")' >> $GITHUB_OUTPUT
+          gh api "$API_URL" | jq -r '{"SHA": .sha, "REPO": .submodule_git_url | sub("https://github.com/"; "") | sub(".git"; "")} | to_entries[] | join("=")' >> $GITHUB_OUTPUT
 
       - name: Clone
         uses: actions/checkout@v3
