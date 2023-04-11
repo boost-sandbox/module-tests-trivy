@@ -42,7 +42,7 @@ jobs:
           api_token: ${{ secrets.BOOST_API_TOKEN }}
           registry_module: boostsecurityio/trivy-fs
           api_endpoint: https://api.dev.boostsec.io
-          additional_args: --registry https://github.com/boostsecurityio/scanner-testing.git#add-trivy-fs --path $GITHUB_WORKSPACE/$BOOST_IMAGE_NAME
+          additional_args: --registry https://github.com/boostsecurityio/scanner-testing.git#add-trivy-fs
           log_level: DEBUG
           scan_label: ${{ matrix.image }}
 
@@ -52,7 +52,7 @@ jobs:
           api_token: ${{ secrets.BOOST_API_TOKEN }}
           registry_module: boostsecurityio/trivy-sbom
           api_endpoint: https://api.dev.boostsec.io
-          additional_args: --registry https://github.com/boostsecurityio/scanner-testing.git --path $GITHUB_WORKSPACE/$BOOST_IMAGE_NAME
+          additional_args: --registry https://github.com/boostsecurityio/scanner-testing.git
           log_level: DEBUG
           scan_label: ${{ matrix.image }}
           scan_path: ${{ matrix.image }}
