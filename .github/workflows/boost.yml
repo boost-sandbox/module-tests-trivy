@@ -15,27 +15,21 @@ jobs:
 #         - rclone
 
     steps:
+      - id: submodule
+        env:
+          API_URL: "/repos/${{ github.repository }}/contents/${{ matrix.image }}"
+        run: |
+          gh api "$API_URL" | jq -r '{"SHA": .sha, "REPO": .submodule_git_url} | to_entries[] | join("=")' >> $GITHUB_OUTPUT
+
       - name: Clone
         uses: actions/checkout@v3
-
-      - name: Fetch submodule
-        env:
-          BOOST_IMAGE_NAME: ${{ matrix.image }}
-        run: |
-          git submodule update --init "$BOOST_IMAGE_NAME"
-          # replace the submodule folder with a full repo clone
-          rm -rf "$BOOST_IMAGE_NAME"
-          git clone ".git/modules/$BOOST_IMAGE_NAME" "$BOOST_IMAGE_NAME"
-
-          remote_url=`GIT_DIR=".git/modules/$BOOST_IMAGE_NAME" git remote get-url origin`
-
-          cd "$BOOST_IMAGE_NAME"
-          git remote set-url origin "$remote_url"
+        with:
+          repository: ${{ steps.submodule.outputs.REPO  }}
+          ref: ${{ steps.submodule.outputs.SHA  }}
 
       - env:
           BOOST_IMAGE_NAME: ${{ matrix.image }}
         run: |
-          cd "$BOOST_IMAGE_NAME"
           docker build -t "$BOOST_IMAGE_NAME" .
 
       - name: 'trivy-fs on ${{ matrix.image }}'
