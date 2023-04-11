@@ -18,6 +18,7 @@ jobs:
       - id: submodule
         env:
           API_URL: "/repos/${{ github.repository }}/contents/${{ matrix.image }}"
+          GH_TOKEN: ${{ github.token }}
         run: |
           gh api "$API_URL" | jq -r '{"SHA": .sha, "REPO": .submodule_git_url} | to_entries[] | join("=")' >> $GITHUB_OUTPUT
 
