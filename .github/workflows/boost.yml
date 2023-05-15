@@ -36,8 +36,6 @@ jobs:
       - name: 'trivy-fs on ${{ matrix.image }}'
         continue-on-error: true
         uses: boostsecurityio/boostsec-scanner-github@v4
-        env:
-          BOOST_IMAGE_NAME: ${{ matrix.image }}
         with:
           api_token: ${{ secrets.BOOST_API_KEY }}
           registry_module: boostsecurityio/trivy-fs
