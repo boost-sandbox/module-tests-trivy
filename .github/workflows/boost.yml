@@ -22,6 +22,7 @@ jobs:
         env:
           BOOST_IMAGE_NAME: ${{ matrix.image }}
         run: |
+          git config --global submodule.recurse true
           git submodule update --init "$BOOST_IMAGE_NAME"
           # replace the submodule folder with a full repo clone
           rm -rf "$BOOST_IMAGE_NAME"
