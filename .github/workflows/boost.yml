@@ -46,9 +46,10 @@ jobs:
           registry_module: boostsecurityio/trivy-fs
           api_endpoint: ${{ matrix.api_endpoint }}
           api_token: ${{ secrets[matrix.api_token_secret_name] }}
+          scan_label: ${{ matrix.target }}
+          scan_path: ${{ matrix.target }}
         env:
           BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
-          BOOST_GIT_REPOSITORY: ${{ github.workspace }}/${{ matrix.target }}
           
       - name: 'trivy-sbom on ${{ matrix.target }}'
         continue-on-error: true
@@ -57,9 +58,10 @@ jobs:
           registry_module: boostsecurityio/trivy-sbom
           api_endpoint: ${{ matrix.api_endpoint }}
           api_token: ${{ secrets[matrix.api_token_secret_name] }}
+          scan_label: ${{ matrix.target }}
+          scan_path: ${{ matrix.target }}
         env:
           BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
-          BOOST_GIT_REPOSITORY: ${{ github.workspace }}/${{ matrix.target }}
 
       - name: Prepare Docker image
         env:
@@ -75,10 +77,11 @@ jobs:
           registry_module: boostsecurityio/trivy-image
           api_endpoint: ${{ matrix.api_endpoint }}
           api_token: ${{ secrets[matrix.api_token_secret_name] }}
+          scan_label: ${{ matrix.target }}
+          scan_path: ${{ matrix.target }}
         env:
           BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
           BOOST_IMAGE_NAME: ${{ matrix.target }}
-          BOOST_GIT_REPOSITORY: ${{ github.workspace }}/${{ matrix.target }}
 
       - name: 'trivy-sbom-image on ${{ matrix.target }}'
         continue-on-error: true
@@ -87,7 +90,8 @@ jobs:
           registry_module: boostsecurityio/trivy-sbom-image
           api_endpoint: ${{ matrix.api_endpoint }}
           api_token: ${{ secrets[matrix.api_token_secret_name] }}
+          scan_label: ${{ matrix.target }}
+          scan_path: ${{ matrix.target }}
         env:
           BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
           BOOST_IMAGE_NAME: ${{ matrix.target }}
-          BOOST_GIT_REPOSITORY: ${{ github.workspace }}/${{ matrix.target }}
