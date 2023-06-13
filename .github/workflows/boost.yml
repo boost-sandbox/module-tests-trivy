@@ -16,6 +16,7 @@ jobs:
         - gitleaks
         - osv-scanner
         - rclone
+        - kubeaudit
         include:
           - registry_url: https://github.com/boost-community/scanner-registry.git
             api_endpoint: https://api.boostsecurity.io
