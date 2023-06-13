@@ -36,6 +36,8 @@ jobs:
           # replace the submodule folder with a full repo clone
           rm -rf "$BOOST_IMAGE_NAME"
           git clone ".git/modules/$BOOST_IMAGE_NAME" "$BOOST_IMAGE_NAME"
+          cd $BOOST_IMAGE_NAME
+          git switch -c main
           
       - name: Test
         run: |
