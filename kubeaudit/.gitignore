@@ -1,0 +1,12 @@
+/kubeaudit
+/kubeaudit_unix
+/tmp
+/.glide
+/.dev
+.DS_Store
+coverage.txt
+/dist
+*.swp
+/vendor
+/.vscode
+.go-version

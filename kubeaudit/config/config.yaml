@@ -1,0 +1,28 @@
+# Sample config
+
+enabledAuditors:
+    # Auditors are enabled by default if they are not explicitly set to "false"
+    apparmor: true
+    asat: true
+    capabilities: true
+    hostns: true
+    image: true
+    limits: true
+    mounts: true
+    netpols: true
+    nonroot: true
+    privesc: true
+    privileged: true
+    rootfs: true
+    seccomp: true
+auditors:
+    capabilities:
+        # add capabilities needed to the add list, so kubeaudit won't report errors
+        add: ["AUDIT_WRITE", "CHOWN", "KILL"]
+    image:
+        image: "myimage:mytag"
+    limits:
+        cpu: "750m"
+        memory: "500m"
+    mounts:
+        denyPathsList: ["/proc", "/var/run/docker.sock", "/", "/etc", "/root", "/var/run/crio/crio.sock", "/home/admin", "/var/lib/kubelet", "/var/lib/kubelet/pki", "/etc/kubernetes", "/etc/kubernetes/manifests"]

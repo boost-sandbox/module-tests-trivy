@@ -1,0 +1,42 @@
+project_name: kubeaudit
+release:
+  github:
+    owner: Shopify
+    name: kubeaudit
+  draft: true
+  name_template: "{{.ProjectName}}-v{{.Version}}"
+dockers:
+- dockerfile: goreleaser.Dockerfile
+  goos: linux
+  goarch: amd64
+  goarm: ''
+  image_templates:
+  - "shopify/kubeaudit:latest"
+  - "shopify/kubeaudit:{{ .Tag }}"
+  - "shopify/kubeaudit:v{{ .Major }}.{{ .Minor }}"
+builds:
+- goos:
+  - linux
+  - darwin
+  - windows
+  goarm:
+  - 6
+  - 7
+  main: ./cmd/main.go
+  binary: kubeaudit
+  ldflags:
+  - -s -w -X github.com/Shopify/kubeaudit/cmd.Version={{.Version}} -X github.com/Shopify/kubeaudit/cmd.Commit={{.Commit}} -X github.com/Shopify/kubeaudit/cmd.BuildDate={{.Date}}
+archives:
+- format: tar.gz
+  name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{.Arm }}{{ end }}'
+  files:
+  - licence*
+  - LICENCE*
+  - readme*
+  - README*
+  - changelog*
+  - CHANGELOG*
+snapshot:
+  name_template: SNAPSHOT-{{ .Commit }}
+checksum:
+  name_template: '{{ .ProjectName }}_{{ .Version }}_checksums.txt'
