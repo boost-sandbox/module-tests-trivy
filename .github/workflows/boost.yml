@@ -12,16 +12,15 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target:
-        - gitleaks
-        - osv-scanner
-        - rclone
-        - kubeaudit
+        target: [gitleaks, osv-scanner, rclone, kubeaudit]
+        environment: [prod, dev]
         include:
-          - registry_url: https://github.com/boost-community/scanner-registry.git
+          - environment: prod
+            registry_url: https://github.com/boost-community/scanner-registry.git
             api_endpoint: https://api.boostsecurity.io
             api_token_secret_name: BOOST_API_KEY
-          - registry_url: https://github.com/boostsecurityio/dev-registry.git#BST-5714_01_update_trivy
+          - environment: dev
+            registry_url: https://github.com/boostsecurityio/dev-registry.git#BST-5714_01_update_trivy
             api_endpoint: https://api.dev.boostsec.io
             api_token_secret_name: BOOST_API_KEY_DEV
     steps:
@@ -66,7 +65,7 @@ jobs:
           registry_module: boostsecurityio/trivy-image
           api_endpoint: ${{ matrix.api_endpoint }}
           api_token: ${{ secrets[matrix.api_token_secret_name] }}
-          scan_label: ${{ matrix.target }}
+          scan_label: ${{ matrix.target }} Docker
           scan_path: ${{ matrix.target }}
         env:
           BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
@@ -79,7 +78,7 @@ jobs:
           registry_module: boostsecurityio/trivy-sbom-image
           api_endpoint: ${{ matrix.api_endpoint }}
           api_token: ${{ secrets[matrix.api_token_secret_name] }}
-          scan_label: ${{ matrix.target }}
+          scan_label: ${{ matrix.target }} Docker
           scan_path: ${{ matrix.target }}
         env:
           BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
