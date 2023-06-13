@@ -8,7 +8,7 @@ env:
 
 jobs:
   boost:
-    name: Trivy on ${{ matrix.target }}
+    name: Trivy on ${{ matrix.target }} to ${{ matrix.environment }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
