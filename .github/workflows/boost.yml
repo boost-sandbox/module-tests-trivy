@@ -43,11 +43,12 @@ jobs:
         with:
           registry_module: boostsecurityio/trivy-fs
           scan_label: ${{ matrix.target }}
-          scan_path: ${{ matrix.target }}
+          scan_path: .
           api_endpoint: ${{ matrix.api_endpoint }}
           api_token: ${{ secrets[matrix.api_token_secret_name] }}
         env:
           BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
+          BOOST_GIT_REPOSITORY: ${{ github.workspace }}/${{ matrix.target }}
           
       - name: 'trivy-sbom on ${{ matrix.target }}'
         continue-on-error: true
@@ -55,11 +56,12 @@ jobs:
         with:
           registry_module: boostsecurityio/trivy-sbom
           scan_label: ${{ matrix.target }}
-          scan_path: ${{ matrix.target }}
+          scan_path: .
           api_endpoint: ${{ matrix.api_endpoint }}
           api_token: ${{ secrets[matrix.api_token_secret_name] }}
         env:
           BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
+          BOOST_GIT_REPOSITORY: ${{ github.workspace }}/${{ matrix.target }}
 
       - name: Prepare Docker image
         env:
