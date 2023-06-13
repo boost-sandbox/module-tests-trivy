@@ -38,70 +38,56 @@ jobs:
           git clone ".git/modules/$BOOST_IMAGE_NAME" "$BOOST_IMAGE_NAME"
           cd $BOOST_IMAGE_NAME
           git switch -c main
+      
+      - name: 'trivy-fs on ${{ matrix.target }}'
+        continue-on-error: true
+        uses: boostsecurityio/boostsec-scanner-github@v4
+        with:
+          registry_module: boostsecurityio/trivy-fs
+          api_endpoint: ${{ matrix.api_endpoint }}
+          api_token: ${{ secrets[matrix.api_token_secret_name] }}
+        env:
+          BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
+          BOOST_GIT_REPOSITORY: ${{ github.workspace }}/${{ matrix.target }}
           
-      - name: Test
+      - name: 'trivy-sbom on ${{ matrix.target }}'
+        continue-on-error: true
+        uses: boostsecurityio/boostsec-scanner-github@v4
+        with:
+          registry_module: boostsecurityio/trivy-sbom
+          api_endpoint: ${{ matrix.api_endpoint }}
+          api_token: ${{ secrets[matrix.api_token_secret_name] }}
+        env:
+          BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
+          BOOST_GIT_REPOSITORY: ${{ github.workspace }}/${{ matrix.target }}
+
+      - name: Prepare Docker image
+        env:
+          BOOST_IMAGE_NAME: ${{ matrix.target }}
         run: |
-          echo ${{ github.workspace }}/${{ matrix.target }}
-          ls -lah ${{ github.workspace }}/${{ matrix.target }}
-          cd ${{ github.workspace }}/${{ matrix.target }}
-          ls
-          git status
-
-#       - name: 'trivy-fs on ${{ matrix.target }}'
-#         continue-on-error: true
-#         uses: boostsecurityio/boostsec-scanner-github@v4
-#         with:
-#           registry_module: boostsecurityio/trivy-fs
-#           scan_label: ${{ matrix.target }}
-#           scan_path: .
-#           api_endpoint: ${{ matrix.api_endpoint }}
-#           api_token: ${{ secrets[matrix.api_token_secret_name] }}
-#         env:
-#           BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
-#           BOOST_GIT_REPOSITORY: ${{ github.workspace }}/${{ matrix.target }}
+          cd "$BOOST_IMAGE_NAME"
+          docker build -t "$BOOST_IMAGE_NAME" .
           
-#       - name: 'trivy-sbom on ${{ matrix.target }}'
-#         continue-on-error: true
-#         uses: boostsecurityio/boostsec-scanner-github@v4
-#         with:
-#           registry_module: boostsecurityio/trivy-sbom
-#           scan_label: ${{ matrix.target }}
-#           scan_path: .
-#           api_endpoint: ${{ matrix.api_endpoint }}
-#           api_token: ${{ secrets[matrix.api_token_secret_name] }}
-#         env:
-#           BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
-#           BOOST_GIT_REPOSITORY: ${{ github.workspace }}/${{ matrix.target }}
+      - name: 'trivy-image on ${{ matrix.target }}'
+        continue-on-error: true
+        uses: boostsecurityio/boostsec-scanner-github@v4
+        with:
+          registry_module: boostsecurityio/trivy-image
+          api_endpoint: ${{ matrix.api_endpoint }}
+          api_token: ${{ secrets[matrix.api_token_secret_name] }}
+        env:
+          BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
+          BOOST_IMAGE_NAME: ${{ matrix.target }}
+          BOOST_GIT_REPOSITORY: ${{ github.workspace }}/${{ matrix.target }}
 
-#       - name: Prepare Docker image
-#         env:
-#           BOOST_IMAGE_NAME: ${{ matrix.target }}
-#         run: |
-#           cd "$BOOST_IMAGE_NAME"
-#           docker build -t "$BOOST_IMAGE_NAME" .
-          
-#       - name: 'trivy-image on ${{ matrix.target }}'
-#         continue-on-error: true
-#         uses: boostsecurityio/boostsec-scanner-github@v4
-#         with:
-#           registry_module: boostsecurityio/trivy-image
-#           scan_label: ${{ matrix.target }}
-#           scan_path: ${{ matrix.target }}
-#           api_endpoint: ${{ matrix.api_endpoint }}
-#           api_token: ${{ secrets[matrix.api_token_secret_name] }}
-#         env:
-#           BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
-#           BOOST_IMAGE_NAME: ${{ matrix.target }}
-
-#       - name: 'trivy-sbom-image on ${{ matrix.target }}'
-#         continue-on-error: true
-#         uses: boostsecurityio/boostsec-scanner-github@v4
-#         with:
-#           registry_module: boostsecurityio/trivy-sbom-image
-#           scan_label: ${{ matrix.target }}
-#           scan_path: ${{ matrix.target }}
-#           api_endpoint: ${{ matrix.api_endpoint }}
-#           api_token: ${{ secrets[matrix.api_token_secret_name] }}
-#         env:
-#           BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
-#           BOOST_IMAGE_NAME: ${{ matrix.target }}
+      - name: 'trivy-sbom-image on ${{ matrix.target }}'
+        continue-on-error: true
+        uses: boostsecurityio/boostsec-scanner-github@v4
+        with:
+          registry_module: boostsecurityio/trivy-sbom-image
+          api_endpoint: ${{ matrix.api_endpoint }}
+          api_token: ${{ secrets[matrix.api_token_secret_name] }}
+        env:
+          BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
+          BOOST_IMAGE_NAME: ${{ matrix.target }}
+          BOOST_GIT_REPOSITORY: ${{ github.workspace }}/${{ matrix.target }}
