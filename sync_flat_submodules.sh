@@ -1,16 +1,17 @@
 #!/bin/bash
 
-rm -rf gitleaks
-git clone git@github.com:gitleaks/gitleaks.git
-git -C gitleaks checkout v8.15.2
-rm -rf gitleaks/.git
+repos=(
+  "gitleaks git@github.com:gitleaks/gitleaks.git v8.15.2"
+  "osv-scanner git@github.com:google/osv-scanner.git v1.0.2"
+  "rclone git@github.com:rclone/rclone.git v1.62.2"
+  "kubeaudit git@github.com:/Shopify/kubeaudit v0.18.0"
+)
 
-rm -rf osv-scanner
-git clone git@github.com:google/osv-scanner.git
-git -C osv-scanner checkout v1.0.2
-rm -rf osv-scanner/.git
-
-rm -rf rclone
-git clone git@github.com:rclone/rclone.git
-git -C rclone checkout v1.62.2
-rm -rf rclone/.git
+for repo in "${repos[@]}"; do
+  read -r name url version <<<"$repo"
+  
+  rm -rf "$name"
+  git clone "$url" "$name"
+  git -C "$name" checkout "$version"
+  rm -rf "$name/.git"
+done
