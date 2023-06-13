@@ -9,7 +9,7 @@ env:
 jobs:
   boost:
     name: Trivy on ${{ matrix.target }} to ${{ matrix.environment }}
-    runs-on: ubuntu-latest-m
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         target: [gitleaks, osv-scanner, rclone, kubeaudit]
