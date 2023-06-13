@@ -20,24 +20,12 @@ jobs:
           - registry_url: https://github.com/boost-community/scanner-registry.git
             api_endpoint: https://api.boostsecurity.io
             api_token_secret_name: BOOST_API_KEY
-#           - registry_url: https://github.com/boostsecurityio/dev-registry.git#BST-5714_01_update_trivy
-#             api_endpoint: https://api.dev.boostsec.io
-#             api_token_secret_name: BOOST_API_KEY_DEV
+          - registry_url: https://github.com/boostsecurityio/dev-registry.git#BST-5714_01_update_trivy
+            api_endpoint: https://api.dev.boostsec.io
+            api_token_secret_name: BOOST_API_KEY_DEV
     steps:
       - name: Clone
         uses: actions/checkout@v3
-
-      - name: Fetch submodule 
-        env:
-          BOOST_IMAGE_NAME: ${{ matrix.target }}
-        run: |
-          git config --global submodule.recurse true
-          git submodule update --init "$BOOST_IMAGE_NAME"
-          # replace the submodule folder with a full repo clone
-          rm -rf "$BOOST_IMAGE_NAME"
-          git clone ".git/modules/$BOOST_IMAGE_NAME" "$BOOST_IMAGE_NAME"
-          cd $BOOST_IMAGE_NAME
-          git switch -c main
       
       - name: 'trivy-fs on ${{ matrix.target }}'
         continue-on-error: true
