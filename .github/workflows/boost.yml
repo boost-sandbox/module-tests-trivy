@@ -1,4 +1,4 @@
-name: boostsecurity.io
+name: Trivy smoke tests
 on:
   workflow_dispatch:
   push:
@@ -13,67 +13,73 @@ jobs:
         - gitleaks
         - osv-scanner
         - rclone
-
+        include:
+          - url: https://github.com/boost-community/scanner-registry.git
+            token: ${{ secrets.BOOST_API_KEY }}
+          - url: https://github.com/boostsecurityio/dev-registry.git#BST-5714_01_update_trivy
+            token: ${{ secrets.BOOST_API_KEY_DEV }}
     steps:
-      - name: Clone
-        uses: actions/checkout@v3
+      - name: Dump matrix
+        run: echo ${{ matrix }}
+#       - name: Clone
+#         uses: actions/checkout@v3
 
-      - name: Fetch submodule
-        env:
-          BOOST_IMAGE_NAME: ${{ matrix.image }}
-        run: |
-          git config --global submodule.recurse true
-          git submodule update --init "$BOOST_IMAGE_NAME"
-          # replace the submodule folder with a full repo clone
-          rm -rf "$BOOST_IMAGE_NAME"
-          git clone ".git/modules/$BOOST_IMAGE_NAME" "$BOOST_IMAGE_NAME"
+#       - name: Fetch submodule
+#         env:
+#           BOOST_IMAGE_NAME: ${{ matrix.image }}
+#         run: |
+#           git config --global submodule.recurse true
+#           git submodule update --init "$BOOST_IMAGE_NAME"
+#           # replace the submodule folder with a full repo clone
+#           rm -rf "$BOOST_IMAGE_NAME"
+#           git clone ".git/modules/$BOOST_IMAGE_NAME" "$BOOST_IMAGE_NAME"
 
-      - env:
-          BOOST_IMAGE_NAME: ${{ matrix.image }}
-        run: |
-          cd "$BOOST_IMAGE_NAME"
-          docker build -t "$BOOST_IMAGE_NAME" .
+#       - env:
+#           BOOST_IMAGE_NAME: ${{ matrix.image }}
+#         run: |
+#           cd "$BOOST_IMAGE_NAME"
+#           docker build -t "$BOOST_IMAGE_NAME" .
 
-      - name: 'trivy-fs on ${{ matrix.image }}'
-        continue-on-error: true
-        uses: boostsecurityio/boostsec-scanner-github@v4
-        with:
-          api_token: ${{ secrets.BOOST_API_KEY }}
-          registry_module: boostsecurityio/trivy-fs
-#           log_level: DEBUG
-          scan_label: ${{ matrix.image }}
-          scan_path: ${{ matrix.image }}
+#       - name: 'trivy-fs on ${{ matrix.image }}'
+#         continue-on-error: true
+#         uses: boostsecurityio/boostsec-scanner-github@v4
+#         with:
+#           api_token: ${{ secrets.BOOST_API_KEY }}
+#           registry_module: boostsecurityio/trivy-fs
+# #           log_level: DEBUG
+#           scan_label: ${{ matrix.image }}
+#           scan_path: ${{ matrix.image }}
 
-      - name: 'trivy-sbom on ${{ matrix.image }}'
-        continue-on-error: true
-        uses: boostsecurityio/boostsec-scanner-github@v4
-        with:
-          api_token: ${{ secrets.BOOST_API_KEY }}
-          registry_module: boostsecurityio/trivy-sbom
-#           log_level: DEBUG
-          scan_label: ${{ matrix.image }}
-          scan_path: ${{ matrix.image }}
+#       - name: 'trivy-image on ${{ matrix.image }}'
+#         continue-on-error: true
+#         uses: boostsecurityio/boostsec-scanner-github@v4
+#         env:
+#           BOOST_IMAGE_NAME: ${{ matrix.image }}
+#         with:
+#           api_token: ${{ secrets.BOOST_API_KEY }}
+#           registry_module: boostsecurityio/trivy-image
+# #           log_level: DEBUG
+#           scan_label: ${{ matrix.image }}
+#           scan_path: ${{ matrix.image }}
+          
+#       - name: 'trivy-sbom on ${{ matrix.image }}'
+#         continue-on-error: true
+#         uses: boostsecurityio/boostsec-scanner-github@v4
+#         with:
+#           api_token: ${{ secrets.BOOST_API_KEY }}
+#           registry_module: boostsecurityio/trivy-sbom
+# #           log_level: DEBUG
+#           scan_label: ${{ matrix.image }}
+#           scan_path: ${{ matrix.image }}
 
-      - name: 'trivy-image on ${{ matrix.image }}'
-        continue-on-error: true
-        uses: boostsecurityio/boostsec-scanner-github@v4
-        env:
-          BOOST_IMAGE_NAME: ${{ matrix.image }}
-        with:
-          api_token: ${{ secrets.BOOST_API_KEY }}
-          registry_module: boostsecurityio/trivy-image
-#           log_level: DEBUG
-          scan_label: ${{ matrix.image }}
-          scan_path: ${{ matrix.image }}
-
-      - name: 'trivy-sbom-image on ${{ matrix.image }}'
-        continue-on-error: true
-        uses: boostsecurityio/boostsec-scanner-github@v4
-        env:
-          BOOST_IMAGE_NAME: ${{ matrix.image }}
-        with:
-          api_token: ${{ secrets.BOOST_API_KEY }}
-          registry_module: boostsecurityio/trivy-sbom-image
-#           log_level: DEBUG
-          scan_label: ${{ matrix.image }}
-          scan_path: ${{ matrix.image }}
+#       - name: 'trivy-sbom-image on ${{ matrix.image }}'
+#         continue-on-error: true
+#         uses: boostsecurityio/boostsec-scanner-github@v4
+#         env:
+#           BOOST_IMAGE_NAME: ${{ matrix.image }}
+#         with:
+#           api_token: ${{ secrets.BOOST_API_KEY }}
+#           registry_module: boostsecurityio/trivy-sbom-image
+# #           log_level: DEBUG
+#           scan_label: ${{ matrix.image }}
+#           scan_path: ${{ matrix.image }}
