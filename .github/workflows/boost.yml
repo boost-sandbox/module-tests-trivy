@@ -15,9 +15,9 @@ jobs:
         - rclone
         include:
           - url: https://github.com/boost-community/scanner-registry.git
-            token: ${{ secrets.BOOST_API_KEY }}
+            api_token_secret_name: BOOST_API_KEY
           - url: https://github.com/boostsecurityio/dev-registry.git#BST-5714_01_update_trivy
-            token: ${{ secrets.BOOST_API_KEY_DEV }}
+            api_token_secret_name: BOOST_API_KEY_DEV
     steps:
       - name: Dump matrix
         run: echo ${{ matrix }}
