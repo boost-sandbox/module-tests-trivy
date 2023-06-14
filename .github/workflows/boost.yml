@@ -1,7 +1,6 @@
 name: Trivy smoke tests
 on:
   workflow_dispatch:
-  push:
   
 env:
   BOOST_LOG_LEVEL: INFO
