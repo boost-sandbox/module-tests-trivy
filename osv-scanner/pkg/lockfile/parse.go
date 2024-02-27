@@ -16,22 +16,27 @@ func FindParser(pathToLockfile string, parseAs string) (PackageDetailsParser, st
 	return parsers[parseAs], parseAs
 }
 
-//nolint:gochecknoglobals // this is an optimisation and read-only
+// this is an optimisation and read-only
 var parsers = map[string]PackageDetailsParser{
+	"buildscript-gradle.lockfile": ParseGradleLock,
 	"Cargo.lock":                  ParseCargoLock,
 	"composer.lock":               ParseComposerLock,
+	"conan.lock":                  ParseConanLock,
 	"Gemfile.lock":                ParseGemfileLock,
 	"go.mod":                      ParseGoLock,
+	"gradle.lockfile":             ParseGradleLock,
 	"mix.lock":                    ParseMixLock,
+	"Pipfile.lock":                ParsePipenvLock,
 	"package-lock.json":           ParseNpmLock,
+	"packages.lock.json":          ParseNuGetLock,
+	"pdm.lock":                    ParsePdmLock,
 	"pnpm-lock.yaml":              ParsePnpmLock,
 	"poetry.lock":                 ParsePoetryLock,
 	"pom.xml":                     ParseMavenLock,
 	"pubspec.lock":                ParsePubspecLock,
+	"renv.lock":                   ParseRenvLock,
 	"requirements.txt":            ParseRequirementsTxt,
 	"yarn.lock":                   ParseYarnLock,
-	"gradle.lockfile":             ParseGradleLock,
-	"buildscript-gradle.lockfile": ParseGradleLock,
 }
 
 func ListParsers() []string {
@@ -123,10 +128,18 @@ func Parse(pathToLockfile string, parseAs string) (Lockfile, error) {
 	parser, parsedAs := FindParser(pathToLockfile, parseAs)
 
 	if parser == nil {
+		if parseAs != "" {
+			return Lockfile{}, fmt.Errorf("%w, requested %s", ErrParserNotFound, parseAs)
+		}
+
 		return Lockfile{}, fmt.Errorf("%w for %s", ErrParserNotFound, pathToLockfile)
 	}
 
 	packages, err := parser(pathToLockfile)
+
+	if err != nil && parseAs != "" {
+		err = fmt.Errorf("(extracting as %s) %w", parsedAs, err)
+	}
 
 	sort.Slice(packages, func(i, j int) bool {
 		if packages[i].Name == packages[j].Name {
