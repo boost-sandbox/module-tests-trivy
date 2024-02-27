@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"regexp"
+	"path/filepath"
 	"strings"
+
+	"github.com/google/osv-scanner/internal/cachedregexp"
 )
 
 const YarnEcosystem = NpmEcosystem
@@ -15,7 +17,7 @@ func shouldSkipYarnLine(line string) bool {
 	return line == "" || strings.HasPrefix(line, "#")
 }
 
-func groupPackageLines(scanner *bufio.Scanner) [][]string {
+func groupYarnPackageLines(scanner *bufio.Scanner) [][]string {
 	var groups [][]string
 	var group []string
 
@@ -46,6 +48,7 @@ func groupPackageLines(scanner *bufio.Scanner) [][]string {
 
 func extractYarnPackageName(str string) string {
 	str = strings.TrimPrefix(str, "\"")
+	str, _, _ = strings.Cut(str, ",")
 
 	isScoped := strings.HasPrefix(str, "@")
 
@@ -53,7 +56,11 @@ func extractYarnPackageName(str string) string {
 		str = strings.TrimPrefix(str, "@")
 	}
 
-	name := strings.SplitN(str, "@", 2)[0]
+	name, right, _ := strings.Cut(str, "@")
+
+	if strings.HasPrefix(right, "npm:") && strings.Contains(right, "@") {
+		return extractYarnPackageName(strings.TrimPrefix(right, "npm:"))
+	}
 
 	if isScoped {
 		name = "@" + name
@@ -63,7 +70,7 @@ func extractYarnPackageName(str string) string {
 }
 
 func determineYarnPackageVersion(group []string) string {
-	re := regexp.MustCompile(`^ {2}version:? "?([\w-.]+)"?$`)
+	re := cachedregexp.MustCompile(`^ {2}"?version"?:? "?([\w-.+]+)"?$`)
 
 	for _, s := range group {
 		matched := re.FindStringSubmatch(s)
@@ -78,7 +85,7 @@ func determineYarnPackageVersion(group []string) string {
 }
 
 func determineYarnPackageResolution(group []string) string {
-	re := regexp.MustCompile(`^ {2}(?:resolution:|resolved) "([^ '"]+)"$`)
+	re := cachedregexp.MustCompile(`^ {2}"?(?:resolution:|resolved)"? "([^ '"]+)"$`)
 
 	for _, s := range group {
 		matched := re.FindStringSubmatch(s)
@@ -111,7 +118,7 @@ func tryExtractCommit(resolution string) string {
 	}
 
 	for _, matcher := range matchers {
-		re := regexp.MustCompile(matcher)
+		re := cachedregexp.MustCompile(matcher)
 		matched := re.FindStringSubmatch(resolution)
 
 		if matched != nil {
@@ -148,7 +155,7 @@ func tryExtractCommit(resolution string) string {
 	return ""
 }
 
-func parsePackageGroup(group []string) PackageDetails {
+func parseYarnPackageGroup(group []string) PackageDetails {
 	name := extractYarnPackageName(group[0])
 	version := determineYarnPackageVersion(group)
 	resolution := determineYarnPackageResolution(group)
@@ -170,19 +177,19 @@ func parsePackageGroup(group []string) PackageDetails {
 	}
 }
 
-func ParseYarnLock(pathToLockfile string) ([]PackageDetails, error) {
-	file, err := os.Open(pathToLockfile)
-	if err != nil {
-		return []PackageDetails{}, fmt.Errorf("could not open %s: %w", pathToLockfile, err)
-	}
-	defer file.Close()
+type YarnLockExtractor struct{}
 
-	scanner := bufio.NewScanner(file)
+func (e YarnLockExtractor) ShouldExtract(path string) bool {
+	return filepath.Base(path) == "yarn.lock"
+}
 
-	packageGroups := groupPackageLines(scanner)
+func (e YarnLockExtractor) Extract(f DepFile) ([]PackageDetails, error) {
+	scanner := bufio.NewScanner(f)
+
+	packageGroups := groupYarnPackageLines(scanner)
 
 	if err := scanner.Err(); err != nil {
-		return []PackageDetails{}, fmt.Errorf("error while scanning %s: %w", pathToLockfile, err)
+		return []PackageDetails{}, fmt.Errorf("error while scanning %s: %w", f.Path(), err)
 	}
 
 	packages := make([]PackageDetails, 0, len(packageGroups))
@@ -192,8 +199,19 @@ func ParseYarnLock(pathToLockfile string) ([]PackageDetails, error) {
 			continue
 		}
 
-		packages = append(packages, parsePackageGroup(group))
+		packages = append(packages, parseYarnPackageGroup(group))
 	}
 
 	return packages, nil
+}
+
+var _ Extractor = YarnLockExtractor{}
+
+//nolint:gochecknoinits
+func init() {
+	registerExtractor("yarn.lock", YarnLockExtractor{})
+}
+
+func ParseYarnLock(pathToLockfile string) ([]PackageDetails, error) {
+	return extractFromFile(pathToLockfile, YarnLockExtractor{})
 }

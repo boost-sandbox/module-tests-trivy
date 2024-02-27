@@ -2,8 +2,8 @@
 
 repos=(
   "gitleaks git@github.com:gitleaks/gitleaks.git v8.15.2"
-  "osv-scanner git@github.com:google/osv-scanner.git v1.0.2"
-  "rclone git@github.com:rclone/rclone.git v1.62.2"
+  "osv-scanner git@github.com:google/osv-scanner.git main"
+  "rclone git@github.com:rclone/rclone.git v1.65.2"
   "kubeaudit git@github.com:/Shopify/kubeaudit v0.18.0"
 )
 

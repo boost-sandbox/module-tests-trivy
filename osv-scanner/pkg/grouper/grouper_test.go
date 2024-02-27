@@ -8,6 +8,8 @@ import (
 )
 
 func TestGroup(t *testing.T) {
+	t.Parallel()
+
 	// Should be grouped by IDs appearing in alias.
 	v1 := IDAliases{
 		ID: "CVE-1",
@@ -69,7 +71,6 @@ func TestGroup(t *testing.T) {
 	v10 := IDAliases{
 		ID: "UNRELATED-4",
 	}
-
 	for _, tc := range []struct {
 		vulns []IDAliases
 		want  []models.GroupInfo
@@ -80,16 +81,20 @@ func TestGroup(t *testing.T) {
 			},
 			want: []models.GroupInfo{
 				{
-					IDs: []string{v1.ID, v2.ID, v3.ID},
+					IDs:     []string{v1.ID, v2.ID, v3.ID},
+					Aliases: []string{v1.ID, v2.ID, v3.ID},
 				},
 				{
-					IDs: []string{v4.ID, v5.ID, v6.ID},
+					IDs:     []string{v4.ID, v5.ID, v6.ID},
+					Aliases: []string{v4.ID, v5.ID, v6.ID, v4.Aliases[0], v4.Aliases[1], v5.Aliases[1]},
 				},
 				{
-					IDs: []string{v7.ID},
+					IDs:     []string{v7.ID},
+					Aliases: []string{v7.Aliases[0], v7.ID},
 				},
 				{
-					IDs: []string{v8.ID},
+					IDs:     []string{v8.ID},
+					Aliases: []string{v8.Aliases[0], v8.ID},
 				},
 			},
 		},
@@ -99,22 +104,28 @@ func TestGroup(t *testing.T) {
 			},
 			want: []models.GroupInfo{
 				{
-					IDs: []string{v8.ID},
+					IDs:     []string{v8.ID},
+					Aliases: []string{v8.Aliases[0], v8.ID},
 				},
 				{
-					IDs: []string{v2.ID, v1.ID, v3.ID},
+					IDs:     []string{v1.ID, v2.ID, v3.ID}, // Deterministic order
+					Aliases: []string{v1.ID, v2.ID, v3.ID}, // Deterministic order
 				},
 				{
-					IDs: []string{v5.ID, v4.ID, v6.ID},
+					IDs:     []string{v4.ID, v5.ID, v6.ID},
+					Aliases: []string{v4.ID, v5.ID, v6.ID, v4.Aliases[0], v4.Aliases[1], v5.Aliases[1]},
 				},
 				{
-					IDs: []string{v7.ID},
+					IDs:     []string{v7.ID},
+					Aliases: []string{v7.Aliases[0], v7.ID},
 				},
 				{
-					IDs: []string{v9.ID},
+					IDs:     []string{v9.ID},
+					Aliases: []string{v9.ID},
 				},
 				{
-					IDs: []string{v10.ID},
+					IDs:     []string{v10.ID},
+					Aliases: []string{v10.ID},
 				},
 			},
 		},
@@ -124,10 +135,12 @@ func TestGroup(t *testing.T) {
 			},
 			want: []models.GroupInfo{
 				{
-					IDs: []string{v9.ID},
+					IDs:     []string{v9.ID},
+					Aliases: []string{v9.ID},
 				},
 				{
-					IDs: []string{v10.ID},
+					IDs:     []string{v10.ID},
+					Aliases: []string{v10.ID},
 				},
 			},
 		},
@@ -136,6 +149,5 @@ func TestGroup(t *testing.T) {
 		if diff := cmp.Diff(tc.want, grouped); diff != "" {
 			t.Errorf("GroupedVulns() returned an unexpected result (-want, +got):\n%s", diff)
 		}
-
 	}
 }

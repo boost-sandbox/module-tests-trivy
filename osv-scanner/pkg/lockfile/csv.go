@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strings"
 )
@@ -86,6 +85,19 @@ func fromCSV(reader io.Reader) ([]PackageDetails, error) {
 	return packages, nil
 }
 
+type CSVExtractor struct{}
+
+func (e CSVExtractor) ShouldExtract(_ string) bool {
+	// the csv extractor should never implicitly extract a file
+	return false
+}
+
+func (e CSVExtractor) Extract(f DepFile) ([]PackageDetails, error) {
+	return fromCSV(f)
+}
+
+var _ Extractor = CSVExtractor{}
+
 func FromCSVRows(filePath string, parseAs string, rows []string) (Lockfile, error) {
 	packages, err := fromCSV(strings.NewReader(strings.Join(rows, "\n")))
 
@@ -97,13 +109,13 @@ func FromCSVRows(filePath string, parseAs string, rows []string) (Lockfile, erro
 }
 
 func FromCSVFile(pathToCSV string, parseAs string) (Lockfile, error) {
-	reader, err := os.Open(pathToCSV)
-
+	file, err := OpenLocalDepFile(pathToCSV)
 	if err != nil {
 		return Lockfile{}, fmt.Errorf("could not read %s: %w", pathToCSV, err)
 	}
+	defer file.Close()
 
-	packages, err := fromCSV(reader)
+	packages, err := fromCSV(file)
 
 	if err != nil {
 		err = fmt.Errorf("%s: %w", pathToCSV, err)

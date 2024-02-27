@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/osv-scanner/internal/output"
 	"github.com/google/osv-scanner/pkg/lockfile"
 )
 
@@ -30,8 +31,9 @@ func expectNumberOfParsersCalled(t *testing.T, numberOfParsersCalled int) {
 
 	if numberOfParsersCalled != count {
 		t.Errorf(
-			"Expected %d parsers to have been called, but had %d",
+			"Expected %d %s to have been called, but had %d",
 			count,
+			output.Form(count, "parser", "parsers"),
 			numberOfParsersCalled,
 		)
 	}
@@ -41,16 +43,24 @@ func TestFindParser(t *testing.T) {
 	t.Parallel()
 
 	lockfiles := []string{
+		"buildscript-gradle.lockfile",
 		"Cargo.lock",
-		"package-lock.json",
-		"yarn.lock",
-		"pnpm-lock.yaml",
-		"pubspec.lock",
 		"composer.lock",
 		"Gemfile.lock",
 		"go.mod",
+		"gradle.lockfile",
+		"mix.lock",
+		"pdm.lock",
+		"Pipfile.lock",
+		"package-lock.json",
+		"packages.lock.json",
+		"pnpm-lock.yaml",
+		"poetry.lock",
 		"pom.xml",
+		"pubspec.lock",
+		"renv.lock",
 		"requirements.txt",
+		"yarn.lock",
 	}
 
 	for _, file := range lockfiles {
@@ -72,7 +82,7 @@ func TestFindParser_ExplicitParseAs(t *testing.T) {
 	parser, parsedAs := lockfile.FindParser("/path/to/my/package-lock.json", "composer.lock")
 
 	if parser == nil {
-		t.Errorf("Expected a parser to be found for package-lock.json (overridden as composer.json) but did not")
+		t.Errorf("Expected a parser to be found for package-lock.json (overridden as composer.lock) but did not")
 	}
 
 	if parsedAs != "composer.lock" {
@@ -84,20 +94,25 @@ func TestParse_FindsExpectedParsers(t *testing.T) {
 	t.Parallel()
 
 	lockfiles := []string{
+		"buildscript-gradle.lockfile",
 		"Cargo.lock",
-		"package-lock.json",
-		"yarn.lock",
-		"pnpm-lock.yaml",
 		"composer.lock",
+		"conan.lock",
 		"Gemfile.lock",
 		"go.mod",
-		"mix.lock",
-		"pom.xml",
-		"poetry.lock",
-		"pubspec.lock",
-		"requirements.txt",
 		"gradle.lockfile",
-		"buildscript-gradle.lockfile",
+		"mix.lock",
+		"Pipfile.lock",
+		"pdm.lock",
+		"package-lock.json",
+		"packages.lock.json",
+		"pnpm-lock.yaml",
+		"poetry.lock",
+		"pom.xml",
+		"pubspec.lock",
+		"renv.lock",
+		"requirements.txt",
+		"yarn.lock",
 	}
 
 	count := 0
@@ -113,7 +128,7 @@ func TestParse_FindsExpectedParsers(t *testing.T) {
 	}
 
 	// gradle.lockfile and buildscript-gradle.lockfile use the same parser
-	count = count - 1
+	count -= 1
 
 	expectNumberOfParsersCalled(t, count)
 }
@@ -122,6 +137,14 @@ func TestParse_ParserNotFound(t *testing.T) {
 	t.Parallel()
 
 	_, err := lockfile.Parse("/path/to/my/", "")
+
+	expectErrIs(t, err, lockfile.ErrParserNotFound)
+}
+
+func TestParse_ParserNotFound_WithExplicitParseAs(t *testing.T) {
+	t.Parallel()
+
+	_, err := lockfile.Parse("/path/to/my/", "unsupported")
 
 	if err == nil {
 		t.Errorf("Expected to get an error but did not")
@@ -138,6 +161,7 @@ func TestListParsers(t *testing.T) {
 	parsers := lockfile.ListParsers()
 
 	firstExpected := "buildscript-gradle.lockfile"
+	//nolint:ifshort
 	lastExpected := "yarn.lock"
 
 	if first := parsers[0]; first != firstExpected {

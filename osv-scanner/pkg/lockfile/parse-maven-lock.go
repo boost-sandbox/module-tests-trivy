@@ -4,7 +4,10 @@ import (
 	"encoding/xml"
 	"fmt"
 	"os"
-	"regexp"
+	"path/filepath"
+	"strings"
+
+	"github.com/google/osv-scanner/internal/cachedregexp"
 )
 
 type MavenLockDependency struct {
@@ -12,10 +15,11 @@ type MavenLockDependency struct {
 	GroupID    string   `xml:"groupId"`
 	ArtifactID string   `xml:"artifactId"`
 	Version    string   `xml:"version"`
+	Scope      string   `xml:"scope"`
 }
 
 func (mld MavenLockDependency) parseResolvedVersion(version string) string {
-	versionRequirementReg := regexp.MustCompile(`[[(]?(.*?)(?:,|[)\]]|$)`)
+	versionRequirementReg := cachedregexp.MustCompile(`[[(]?(.*?)(?:,|[)\]]|$)`)
 
 	results := versionRequirementReg.FindStringSubmatch(version)
 
@@ -27,7 +31,7 @@ func (mld MavenLockDependency) parseResolvedVersion(version string) string {
 }
 
 func (mld MavenLockDependency) resolveVersionValue(lockfile MavenLockFile) string {
-	interpolationReg := regexp.MustCompile(`\${(.+)}`)
+	interpolationReg := cachedregexp.MustCompile(`\${(.+)}`)
 
 	results := interpolationReg.FindStringSubmatch(mld.Version)
 
@@ -41,9 +45,10 @@ func (mld MavenLockDependency) resolveVersionValue(lockfile MavenLockFile) strin
 
 	fmt.Fprintf(
 		os.Stderr,
-		"Failed to resolve version of %s: property \"%s\" could not be found",
+		"Failed to resolve version of %s: property \"%s\" could not be found for \"%s\"\n",
 		mld.GroupID+":"+mld.ArtifactID,
 		results[1],
+		lockfile.GroupID+":"+lockfile.ArtifactID,
 	)
 
 	return "0"
@@ -56,10 +61,13 @@ func (mld MavenLockDependency) ResolveVersion(lockfile MavenLockFile) string {
 }
 
 type MavenLockFile struct {
-	XMLName      xml.Name              `xml:"project"`
-	ModelVersion string                `xml:"modelVersion"`
-	Properties   MavenLockProperties   `xml:"properties"`
-	Dependencies []MavenLockDependency `xml:"dependencies>dependency"`
+	XMLName             xml.Name              `xml:"project"`
+	ModelVersion        string                `xml:"modelVersion"`
+	GroupID             string                `xml:"groupId"`
+	ArtifactID          string                `xml:"artifactId"`
+	Properties          MavenLockProperties   `xml:"properties"`
+	Dependencies        []MavenLockDependency `xml:"dependencies>dependency"`
+	ManagedDependencies []MavenLockDependency `xml:"dependencyManagement>dependencies>dependency"`
 }
 
 const MavenEcosystem Ecosystem = "Maven"
@@ -72,7 +80,10 @@ func (p *MavenLockProperties) UnmarshalXML(d *xml.Decoder, start xml.StartElemen
 	p.m = map[string]string{}
 
 	for {
-		t, _ := d.Token()
+		t, err := d.Token()
+		if err != nil {
+			return err
+		}
 
 		switch tt := t.(type) {
 		case xml.StartElement:
@@ -92,31 +103,63 @@ func (p *MavenLockProperties) UnmarshalXML(d *xml.Decoder, start xml.StartElemen
 	}
 }
 
-func ParseMavenLock(pathToLockfile string) ([]PackageDetails, error) {
+type MavenLockExtractor struct{}
+
+func (e MavenLockExtractor) ShouldExtract(path string) bool {
+	return filepath.Base(path) == "pom.xml"
+}
+
+func (e MavenLockExtractor) Extract(f DepFile) ([]PackageDetails, error) {
 	var parsedLockfile *MavenLockFile
 
-	lockfileContents, err := os.ReadFile(pathToLockfile)
+	err := xml.NewDecoder(f).Decode(&parsedLockfile)
 
 	if err != nil {
-		return []PackageDetails{}, fmt.Errorf("could not read %s: %w", pathToLockfile, err)
+		return []PackageDetails{}, fmt.Errorf("could not extract from %s: %w", f.Path(), err)
 	}
 
-	err = xml.Unmarshal(lockfileContents, &parsedLockfile)
-
-	if err != nil {
-		return []PackageDetails{}, fmt.Errorf("could not parse %s: %w", pathToLockfile, err)
-	}
-
-	packages := make([]PackageDetails, 0, len(parsedLockfile.Dependencies))
+	details := map[string]PackageDetails{}
 
 	for _, lockPackage := range parsedLockfile.Dependencies {
-		packages = append(packages, PackageDetails{
-			Name:      lockPackage.GroupID + ":" + lockPackage.ArtifactID,
+		finalName := lockPackage.GroupID + ":" + lockPackage.ArtifactID
+
+		pkgDetails := PackageDetails{
+			Name:      finalName,
 			Version:   lockPackage.ResolveVersion(*parsedLockfile),
 			Ecosystem: MavenEcosystem,
 			CompareAs: MavenEcosystem,
-		})
+		}
+		if strings.TrimSpace(lockPackage.Scope) != "" {
+			pkgDetails.DepGroups = append(pkgDetails.DepGroups, lockPackage.Scope)
+		}
+		details[finalName] = pkgDetails
 	}
 
-	return packages, nil
+	// managed dependencies take precedent over standard dependencies
+	for _, lockPackage := range parsedLockfile.ManagedDependencies {
+		finalName := lockPackage.GroupID + ":" + lockPackage.ArtifactID
+		pkgDetails := PackageDetails{
+			Name:      finalName,
+			Version:   lockPackage.ResolveVersion(*parsedLockfile),
+			Ecosystem: MavenEcosystem,
+			CompareAs: MavenEcosystem,
+		}
+		if strings.TrimSpace(lockPackage.Scope) != "" {
+			pkgDetails.DepGroups = append(pkgDetails.DepGroups, lockPackage.Scope)
+		}
+		details[finalName] = pkgDetails
+	}
+
+	return pkgDetailsMapToSlice(details), nil
+}
+
+var _ Extractor = MavenLockExtractor{}
+
+//nolint:gochecknoinits
+func init() {
+	registerExtractor("pom.xml", MavenLockExtractor{})
+}
+
+func ParseMavenLock(pathToLockfile string) ([]PackageDetails, error) {
+	return extractFromFile(pathToLockfile, MavenLockExtractor{})
 }
