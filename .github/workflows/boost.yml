@@ -19,7 +19,7 @@ jobs:
             api_endpoint: https://api.boostsecurity.io
             api_token_secret_name: BOOST_API_KEY
           - environment: dev
-            registry_url: https://github.com/boostsecurityio/dev-registry.git#feat/trivyScannersUpdate
+            registry_url: https://github.com/boostsecurityio/dev-registry.git
             api_endpoint: https://api.dev.boostsec.io
             api_token_secret_name: BOOST_API_KEY_DEV
     steps:
@@ -49,7 +49,19 @@ jobs:
           scan_path: ${{ matrix.target }}
         env:
           BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
-
+    
+      - name: 'boost-sca on ${{ matrix.target }}'
+        continue-on-error: true
+        uses: boostsecurityio/boostsec-scanner-github@v4
+        with:
+          registry_module: boostsecurityio/boost-sca
+          api_endpoint: ${{ matrix.api_endpoint }}
+          api_token: ${{ secrets[matrix.api_token_secret_name] }}
+          scan_label: ${{ matrix.target }}
+          scan_path: ${{ matrix.target }}
+        env:
+          BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
+          
       - name: Prepare Docker image
         env:
           BOOST_IMAGE_NAME: ${{ matrix.target }}
