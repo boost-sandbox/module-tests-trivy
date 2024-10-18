@@ -25,31 +25,32 @@ jobs:
           egress-policy: audit
             
       - name: Clone
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+
+      - name: Install Boost CLI
+        run: bash .github/scripts/get-boost-cli.sh
       
       - name: 'trivy-fs on ${{ matrix.target }}'
         continue-on-error: true
-        uses: boostsecurityio/boostsec-scanner-github@v4
-        with:
-          registry_module: boostsecurityio/trivy-fs
-          api_endpoint: ${{ matrix.api_endpoint }}
-          api_token: ${{ secrets[matrix.api_token_secret_name] }}
-          scan_label: ${{ matrix.target }}
-          scan_path: ${{ matrix.target }}
+        run: bash .github/scripts/scan.sh
         env:
+          BOOST_SCANNER_REGISTRY_MODULE: boostsecurityio/trivy-fs
           BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
+          BOOST_API_ENDPOINT: ${{ matrix.api_endpoint }}
+          BOOST_API_TOKEN: ${{ secrets[matrix.api_token_secret_name] }}
+          BOOST_SCAN_LABEL: ${{ matrix.target }}
+          BOOST_SCAN_PATH: ${{ matrix.target }}
           
       - name: 'trivy-sbom on ${{ matrix.target }}'
         continue-on-error: true
-        uses: boostsecurityio/boostsec-scanner-github@v4
-        with:
-          registry_module: boostsecurityio/trivy-sbom
-          api_endpoint: ${{ matrix.api_endpoint }}
-          api_token: ${{ secrets[matrix.api_token_secret_name] }}
-          scan_label: ${{ matrix.target }}
-          scan_path: ${{ matrix.target }}
+        run: bash .github/scripts/scan.sh
         env:
+          BOOST_SCANNER_REGISTRY_MODULE: boostsecurityio/trivy-sbom
           BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
+          BOOST_API_ENDPOINT: ${{ matrix.api_endpoint }}
+          BOOST_API_TOKEN: ${{ secrets[matrix.api_token_secret_name] }}
+          BOOST_SCAN_LABEL: ${{ matrix.target }}
+          BOOST_SCAN_PATH: ${{ matrix.target }}
     
       - name: Prepare Docker image
         env:
@@ -60,26 +61,24 @@ jobs:
           
       - name: 'trivy-image on ${{ matrix.target }}'
         continue-on-error: true
-        uses: boostsecurityio/boostsec-scanner-github@v4
-        with:
-          registry_module: boostsecurityio/trivy-image
-          api_endpoint: ${{ matrix.api_endpoint }}
-          api_token: ${{ secrets[matrix.api_token_secret_name] }}
-          scan_label: ${{ matrix.target }} Docker
-          scan_path: ${{ matrix.target }}
+        run: bash .github/scripts/scan.sh
         env:
+          BOOST_SCANNER_REGISTRY_MODULE: boostsecurityio/trivy-image
           BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
+          BOOST_API_ENDPOINT: ${{ matrix.api_endpoint }}
+          BOOST_API_TOKEN: ${{ secrets[matrix.api_token_secret_name] }}
+          BOOST_SCAN_LABEL: ${{ matrix.target }} Docker
+          BOOST_SCAN_PATH: ${{ matrix.target }}
           BOOST_IMAGE_NAME: ${{ matrix.target }}
 
       - name: 'trivy-sbom-image on ${{ matrix.target }}'
         continue-on-error: true
-        uses: boostsecurityio/boostsec-scanner-github@v4
-        with:
-          registry_module: boostsecurityio/trivy-sbom-image
-          api_endpoint: ${{ matrix.api_endpoint }}
-          api_token: ${{ secrets[matrix.api_token_secret_name] }}
-          scan_label: ${{ matrix.target }} Docker
-          scan_path: ${{ matrix.target }}
+        run: bash .github/scripts/scan.sh
         env:
+          BOOST_SCANNER_REGISTRY_MODULE: boostsecurityio/trivy-sbom-image
           BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
+          BOOST_API_ENDPOINT: ${{ matrix.api_endpoint }}
+          BOOST_API_TOKEN: ${{ secrets[matrix.api_token_secret_name] }}
+          BOOST_SCAN_LABEL: ${{ matrix.target }} Docker
+          BOOST_SCAN_PATH: ${{ matrix.target }}
           BOOST_IMAGE_NAME: ${{ matrix.target }}
