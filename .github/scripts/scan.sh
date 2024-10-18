@@ -43,7 +43,7 @@ init.ci.config ()
 init.cli ()
 {
   mkdir -p "${BOOST_TMP_DIR}"
-  curl --silent "${BOOST_DOWNLOAD_URL}" | bash
+#  curl --silent "${BOOST_DOWNLOAD_URL}" | bash
 }
 
 main.scan ()
