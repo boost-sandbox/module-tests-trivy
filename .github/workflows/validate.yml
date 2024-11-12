@@ -1,6 +1,12 @@
 name: Trivy modules validation
 on:
   workflow_dispatch:
+    inputs:
+      tmate:
+        description: 'Debug with TMate'
+        required: false
+        default: false
+        type: boolean
   
 env:
   BOOST_LOG_LEVEL: INFO
@@ -29,6 +35,10 @@ jobs:
 
       - name: Install Boost CLI
         run: bash .github/scripts/get-boost-cli.sh
+
+      - name: Setup tmate session (optional)
+        if: inputs.tmate
+        uses: mxschmitt/action-tmate@v3
       
       - name: 'trivy-fs on ${{ matrix.target }}'
         continue-on-error: true
