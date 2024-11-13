@@ -6,19 +6,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"math/rand"
 	"net/http"
 	"time"
 
 	"github.com/google/osv-scanner/pkg/lockfile"
 	"github.com/google/osv-scanner/pkg/models"
-	"golang.org/x/sync/semaphore"
+
+	"golang.org/x/sync/errgroup"
 )
 
 const (
 	// QueryEndpoint is the URL for posting queries to OSV.
 	QueryEndpoint = "https://api.osv.dev/v1/querybatch"
-	// GetEndpoint is the URL for getting vulenrabilities from OSV.
+	// GetEndpoint is the URL for getting vulnerabilities from OSV.
 	GetEndpoint = "https://api.osv.dev/v1/vulns"
 	// DetermineVersionEndpoint is the URL for posting determineversion queries to OSV.
 	DetermineVersionEndpoint = "https://api.osv.dev/v1experimental/determineversion"
@@ -27,7 +28,10 @@ const (
 	// maxQueriesPerRequest splits up querybatch into multiple requests if
 	// number of queries exceed this number
 	maxQueriesPerRequest  = 1000
-	maxConcurrentRequests = 25
+	maxConcurrentRequests = 1000
+	maxRetryAttempts      = 4
+	// jitterMultiplier is multiplied to the retry delay multiplied by rand(0, 1.0)
+	jitterMultiplier = 2
 )
 
 var RequestUserAgent = ""
@@ -128,17 +132,17 @@ func MakePkgRequest(pkgDetails lockfile.PackageDetails) *Query {
 			},
 			Commit: pkgDetails.Commit,
 		}
-	} else {
-		return &Query{
-			Version: pkgDetails.Version,
-			Package: Package{
-				Name:      pkgDetails.Name,
-				Ecosystem: string(pkgDetails.Ecosystem),
-			},
-			Metadata: models.Metadata{
-				DepGroups: pkgDetails.DepGroups,
-			},
-		}
+	}
+
+	return &Query{
+		Version: pkgDetails.Version,
+		Package: Package{
+			Name:      pkgDetails.Name,
+			Ecosystem: string(pkgDetails.Ecosystem),
+		},
+		Metadata: models.Metadata{
+			DepGroups: pkgDetails.DepGroups,
+		},
 	}
 }
 
@@ -162,6 +166,7 @@ func checkResponseError(resp *http.Response) error {
 	if err != nil {
 		return fmt.Errorf("failed to read error response from server: %w", err)
 	}
+	defer resp.Body.Close()
 
 	return fmt.Errorf("server response error: %s", string(respBuf))
 }
@@ -182,11 +187,12 @@ func MakeRequestWithClient(request BatchedQuery, client *http.Client) (*BatchedR
 		if err != nil {
 			return nil, err
 		}
-		requestBuf := bytes.NewBuffer(requestBytes)
 
 		resp, err := makeRetryRequest(func() (*http.Response, error) {
+			// Make sure request buffer is inside retry, if outside
+			// http request would finish the buffer, and retried requests would be empty
+			requestBuf := bytes.NewBuffer(requestBytes)
 			// We do not need a specific context
-			//nolint:noctx
 			req, err := http.NewRequest(http.MethodPost, QueryEndpoint, requestBuf)
 			if err != nil {
 				return nil, err
@@ -202,10 +208,6 @@ func MakeRequestWithClient(request BatchedQuery, client *http.Client) (*BatchedR
 			return nil, err
 		}
 		defer resp.Body.Close()
-
-		if err := checkResponseError(resp); err != nil {
-			return nil, err
-		}
 
 		var osvResp BatchedResponse
 		decoder := json.NewDecoder(resp.Body)
@@ -244,11 +246,8 @@ func GetWithClient(id string, client *http.Client) (*models.Vulnerability, error
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
 
-	if err := checkResponseError(resp); err != nil {
-		return nil, err
-	}
+	defer resp.Body.Close()
 
 	var vuln models.Vulnerability
 	decoder := json.NewDecoder(resp.Body)
@@ -270,7 +269,6 @@ func Hydrate(resp *BatchedResponse) (*HydratedBatchedResponse, error) {
 // Vulnerability details using the provided http client.
 func HydrateWithClient(resp *BatchedResponse, client *http.Client) (*HydratedBatchedResponse, error) {
 	hydrated := HydratedBatchedResponse{}
-	ctx := context.TODO()
 	// Preallocate the array to avoid slice reallocations when inserting later
 	hydrated.Results = make([]Response, len(resp.Results))
 	for idx := range hydrated.Results {
@@ -278,85 +276,90 @@ func HydrateWithClient(resp *BatchedResponse, client *http.Client) (*HydratedBat
 			make([]models.Vulnerability, len(resp.Results[idx].Vulns))
 	}
 
-	errChan := make(chan error)
-	rateLimiter := semaphore.NewWeighted(maxConcurrentRequests)
-
+	g, ctx := errgroup.WithContext(context.TODO())
+	g.SetLimit(maxConcurrentRequests)
 	for batchIdx, response := range resp.Results {
 		for resultIdx, vuln := range response.Vulns {
-			if err := rateLimiter.Acquire(ctx, 1); err != nil {
-				log.Panicf("Failed to acquire semaphore: %v", err)
-			}
-
-			go func(id string, batchIdx int, resultIdx int) {
+			id := vuln.ID
+			batchIdx := batchIdx
+			g.Go(func() error {
+				// exit early if another hydration request has already failed
+				// results are thrown away later, so avoid needless work
+				if ctx.Err() != nil {
+					return nil //nolint:nilerr // this value doesn't matter to errgroup.Wait()
+				}
 				vuln, err := GetWithClient(id, client)
 				if err != nil {
-					errChan <- err
-				} else {
-					hydrated.Results[batchIdx].Vulns[resultIdx] = *vuln
+					return err
 				}
+				hydrated.Results[batchIdx].Vulns[resultIdx] = *vuln
 
-				rateLimiter.Release(1)
-			}(vuln.ID, batchIdx, resultIdx)
+				return nil
+			})
 		}
 	}
 
-	// Close error channel when all semaphores are released
-	go func() {
-		if err := rateLimiter.Acquire(ctx, maxConcurrentRequests); err != nil {
-			log.Panicf("Failed to acquire semaphore: %v", err)
-		}
-		// Always close the error channel
-		close(errChan)
-	}()
-
-	// Range will exit when channel is closed.
-	// Channel will be closed when all semaphores are freed.
-	for err := range errChan {
+	if err := g.Wait(); err != nil {
 		return nil, err
 	}
 
 	return &hydrated, nil
 }
 
+// makeRetryRequest will return an error on both network errors, and if the response is not 200
 func makeRetryRequest(action func() (*http.Response, error)) (*http.Response, error) {
 	var resp *http.Response
 	var err error
-	retries := 3
-	for i := 0; i < retries; i++ {
+
+	for i := range maxRetryAttempts {
+		// rand is initialized with a random number (since go1.20), and is also safe to use concurrently
+		// we do not need to use a cryptographically secure random jitter, this is just to spread out the retry requests
+		// #nosec G404
+		jitterAmount := (rand.Float64() * float64(jitterMultiplier) * float64(i))
+		time.Sleep(time.Duration(i*i)*time.Second + time.Duration(jitterAmount*1000)*time.Millisecond)
+
 		resp, err = action()
 		if err == nil {
-			break
+			// Check the response for HTTP errors
+			err = checkResponseError(resp)
+			if err == nil {
+				break
+			}
 		}
-		time.Sleep(time.Second)
 	}
 
 	return resp, err
 }
 
 func MakeDetermineVersionRequest(name string, hashes []DetermineVersionHash) (*DetermineVersionResponse, error) {
-	var buf bytes.Buffer
-
 	request := determineVersionsRequest{
 		Name:       name,
 		FileHashes: hashes,
 	}
 
-	if err := json.NewEncoder(&buf).Encode(request); err != nil {
-		return nil, err
-	}
-
-	//nolint:noctx
-	req, err := http.NewRequest(http.MethodPost, DetermineVersionEndpoint, &buf)
+	requestBytes, err := json.Marshal(request)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	if RequestUserAgent != "" {
-		req.Header.Set("User-Agent", RequestUserAgent)
-	}
 
-	client := http.DefaultClient
-	resp, err := client.Do(req)
+	resp, err := makeRetryRequest(func() (*http.Response, error) {
+		// Make sure request buffer is inside retry, if outside
+		// http request would finish the buffer, and retried requests would be empty
+		requestBuf := bytes.NewBuffer(requestBytes)
+		// We do not need a specific context
+		//nolint:noctx
+		req, err := http.NewRequest(http.MethodPost, DetermineVersionEndpoint, requestBuf)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if RequestUserAgent != "" {
+			req.Header.Set("User-Agent", RequestUserAgent)
+		}
+
+		return http.DefaultClient.Do(req)
+	})
+
 	if err != nil {
 		return nil, err
 	}

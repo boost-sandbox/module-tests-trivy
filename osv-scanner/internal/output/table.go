@@ -3,9 +3,6 @@ package output
 import (
 	"fmt"
 	"io"
-	"log"
-	"math"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -27,9 +24,13 @@ const OSVBaseVulnerabilityURL = "https://osv.dev/"
 
 // PrintTableResults prints the osv scan results into a human friendly table.
 func PrintTableResults(vulnResult *models.VulnerabilityResults, outputWriter io.Writer, terminalWidth int) {
+	if terminalWidth <= 0 {
+		text.DisableColors()
+	}
+
 	// Render the vulnerabilities.
 	outputTable := newTable(outputWriter, terminalWidth)
-	outputTable = tableBuilder(outputTable, vulnResult, terminalWidth > 0)
+	outputTable = tableBuilder(outputTable, vulnResult)
 	if outputTable.Length() != 0 {
 		outputTable.Render()
 	}
@@ -47,25 +48,27 @@ func newTable(outputWriter io.Writer, terminalWidth int) table.Writer {
 	outputTable := table.NewWriter()
 	outputTable.SetOutputMirror(outputWriter)
 
-	if terminalWidth > 0 { // If output is a terminal, set max length to width and add styling
+	// use fancy characters if we're outputting to a terminal
+	if terminalWidth > 0 {
 		outputTable.SetStyle(table.StyleRounded)
-		outputTable.Style().Color.Row = text.Colors{text.Reset, text.BgHiBlack}
-		outputTable.Style().Color.RowAlternate = text.Colors{text.Reset, text.BgBlack}
-		outputTable.Style().Options.DoNotColorBordersAndSeparators = true
 		outputTable.SetAllowedRowLength(terminalWidth)
-	} // Otherwise use default ascii (e.g. getting piped to a file)
+	}
+
+	outputTable.Style().Options.DoNotColorBordersAndSeparators = true
+	outputTable.Style().Color.Row = text.Colors{text.Reset, text.BgHiBlack}
+	outputTable.Style().Color.RowAlternate = text.Colors{text.Reset, text.BgBlack}
 
 	return outputTable
 }
 
-func tableBuilder(outputTable table.Writer, vulnResult *models.VulnerabilityResults, addStyling bool) table.Writer {
+func tableBuilder(outputTable table.Writer, vulnResult *models.VulnerabilityResults) table.Writer {
 	outputTable.AppendHeader(table.Row{"OSV URL", "CVSS", "Ecosystem", "Package", "Version", "Source"})
-	rows := tableBuilderInner(vulnResult, addStyling, true)
+	rows := tableBuilderInner(vulnResult, true)
 	for _, elem := range rows {
 		outputTable.AppendRow(elem.row, table.RowConfig{AutoMerge: elem.shouldMerge})
 	}
 
-	uncalledRows := tableBuilderInner(vulnResult, addStyling, false)
+	uncalledRows := tableBuilderInner(vulnResult, false)
 	if len(uncalledRows) == 0 {
 		return outputTable
 	}
@@ -86,13 +89,10 @@ type tbInnerResponse struct {
 	shouldMerge bool
 }
 
-func tableBuilderInner(vulnResult *models.VulnerabilityResults, addStyling bool, calledVulns bool) []tbInnerResponse {
+func tableBuilderInner(vulnResult *models.VulnerabilityResults, calledVulns bool) []tbInnerResponse {
 	allOutputRows := []tbInnerResponse{}
-	// Working directory used to simplify path
-	workingDir, err := os.Getwd()
-	if err != nil {
-		log.Panicf("can't get working dir: %v", err)
-	}
+	workingDir := mustGetWorkingDirectory()
+
 	for _, sourceRes := range vulnResult.Results {
 		for _, pkg := range sourceRes.Packages {
 			source := sourceRes.Source
@@ -113,15 +113,16 @@ func tableBuilderInner(vulnResult *models.VulnerabilityResults, addStyling bool,
 				var links []string
 
 				for _, vuln := range group.IDs {
-					if addStyling {
-						links = append(links, OSVBaseVulnerabilityURL+text.Bold.EscapeSeq()+vuln+text.Reset.EscapeSeq())
-					} else {
-						links = append(links, OSVBaseVulnerabilityURL+vuln)
+					links = append(links, OSVBaseVulnerabilityURL+text.Bold.Sprintf("%s", vuln))
+
+					// For container scanning results, if there is a DSA, then skip printing its sub-CVEs.
+					if strings.Split(vuln, "-")[0] == "DSA" {
+						break
 					}
 				}
 
 				outputRow = append(outputRow, strings.Join(links, "\n"))
-				outputRow = append(outputRow, MaxSeverity(group, pkg))
+				outputRow = append(outputRow, group.MaxSeverity)
 
 				if pkg.Package.Ecosystem == "" && pkg.Package.Commit != "" {
 					pkgCommitStr := results.PkgToString(pkg.Package)
@@ -157,7 +158,7 @@ func MaxSeverity(group models.GroupInfo, pkg models.PackageVulns) string {
 			}
 		}
 		score, _, _ := severity.CalculateOverallScore(severities)
-		maxSeverity = math.Max(maxSeverity, score)
+		maxSeverity = max(maxSeverity, score)
 	}
 
 	if maxSeverity < 0 {
@@ -173,9 +174,9 @@ func licenseTableBuilder(outputTable table.Writer, vulnResult *models.Vulnerabil
 		return licenseSummaryTableBuilder(outputTable, vulnResult)
 	} else if len(licenseConfig.Allowlist) > 0 {
 		return licenseViolationsTableBuilder(outputTable, vulnResult)
-	} else {
-		return outputTable
 	}
+
+	return outputTable
 }
 
 func licenseSummaryTableBuilder(outputTable table.Writer, vulnResult *models.VulnerabilityResults) table.Writer {
@@ -217,10 +218,7 @@ func licenseSummaryTableBuilder(outputTable table.Writer, vulnResult *models.Vul
 
 func licenseViolationsTableBuilder(outputTable table.Writer, vulnResult *models.VulnerabilityResults) table.Writer {
 	outputTable.AppendHeader(table.Row{"License Violation", "Ecosystem", "Package", "Version", "Source"})
-	workingDir, err := os.Getwd()
-	if err != nil {
-		log.Panicf("can't get working dir: %v", err)
-	}
+	workingDir := mustGetWorkingDirectory()
 	for _, pkgSource := range vulnResult.Results {
 		for _, pkg := range pkgSource.Packages {
 			if len(pkg.LicenseViolations) == 0 {

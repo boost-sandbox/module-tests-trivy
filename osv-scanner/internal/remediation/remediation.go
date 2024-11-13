@@ -4,11 +4,43 @@ import (
 	"math"
 	"slices"
 
+	"github.com/google/osv-scanner/internal/remediation/upgrade"
 	"github.com/google/osv-scanner/internal/resolution"
+	"github.com/google/osv-scanner/internal/resolution/lockfile"
+	"github.com/google/osv-scanner/internal/resolution/manifest"
 	"github.com/google/osv-scanner/internal/utility/severity"
 )
 
-type RemediationOptions struct {
+// TODO: Supported strategies should be part of the manifest/lockfile ReadWriter directly
+func SupportsRelax(m manifest.ReadWriter) bool {
+	switch m.(type) {
+	case manifest.NpmReadWriter:
+		return true
+	default:
+		return false
+	}
+}
+
+func SupportsOverride(m manifest.ReadWriter) bool {
+	switch m.(type) {
+	case manifest.MavenReadWriter:
+		return true
+	default:
+		return false
+	}
+}
+
+func SupportsInPlace(l lockfile.ReadWriter) bool {
+	switch l.(type) {
+	case lockfile.NpmReadWriter:
+		return true
+	default:
+		return false
+	}
+}
+
+type Options struct {
+	resolution.ResolveOpts
 	IgnoreVulns   []string // Vulnerability IDs to ignore
 	ExplicitVulns []string // If set, only consider these vulnerability IDs & ignore all others
 
@@ -16,16 +48,15 @@ type RemediationOptions struct {
 	MinSeverity float64 // Minimum vulnerability CVSS score to consider
 	MaxDepth    int     // Maximum depth of dependency to consider vulnerabilities for (e.g. 1 for direct only)
 
-	AvoidPkgs  []string // Names of dependencies to avoid upgrading
-	AllowMajor bool     // Whether to allow changes to major versions of direct dependencies
+	UpgradeConfig upgrade.Config // Allowed upgrade levels per package.
 }
 
-func (opts RemediationOptions) MatchVuln(v resolution.ResolutionVuln) bool {
-	if slices.Contains(opts.IgnoreVulns, v.Vulnerability.ID) {
+func (opts Options) MatchVuln(v resolution.Vulnerability) bool {
+	if opts.matchID(v, opts.IgnoreVulns) {
 		return false
 	}
 
-	if len(opts.ExplicitVulns) > 0 && !slices.Contains(opts.ExplicitVulns, v.Vulnerability.ID) {
+	if len(opts.ExplicitVulns) > 0 && !opts.matchID(v, opts.ExplicitVulns) {
 		return false
 	}
 
@@ -36,10 +67,24 @@ func (opts RemediationOptions) MatchVuln(v resolution.ResolutionVuln) bool {
 	return opts.matchSeverity(v) && opts.matchDepth(v)
 }
 
-func (opts RemediationOptions) matchSeverity(v resolution.ResolutionVuln) bool {
+func (opts Options) matchID(v resolution.Vulnerability, ids []string) bool {
+	if slices.Contains(ids, v.OSV.ID) {
+		return true
+	}
+
+	for _, id := range v.OSV.Aliases {
+		if slices.Contains(ids, id) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (opts Options) matchSeverity(v resolution.Vulnerability) bool {
 	maxScore := -1.0
-	// TODO: also check Vulnerability.Affected[].Severity
-	for _, sev := range v.Vulnerability.Severity {
+	// TODO: also check OSV.Affected[].Severity
+	for _, sev := range v.OSV.Severity {
 		if score, _, _ := severity.CalculateScore(sev); score > maxScore {
 			maxScore = score
 		}
@@ -52,7 +97,7 @@ func (opts RemediationOptions) matchSeverity(v resolution.ResolutionVuln) bool {
 		maxScore < 0 // Always include vulns with unknown severities
 }
 
-func (opts RemediationOptions) matchDepth(v resolution.ResolutionVuln) bool {
+func (opts Options) matchDepth(v resolution.Vulnerability) bool {
 	if opts.MaxDepth <= 0 {
 		return true
 	}

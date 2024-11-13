@@ -22,21 +22,21 @@ nav_order: 2
 
 A wide range of lockfiles are supported by utilizing this [lockfile package](https://github.com/google/osv-scanner/tree/main/pkg/lockfile).
 
-| Language   | Compatible Lockfile(s)                                                                                                   |
-| :--------- | :----------------------------------------------------------------------------------------------------------------------- |
-| C/C++      | `conan.lock`<br>[C/C++ commit scanning](#cc-scanning)                                                                    |
-| Dart       | `pubspec.lock`                                                                                                           |
-| Elixir     | `mix.lock`                                                                                                               |
-| Go         | `go.mod`                                                                                                                 |
-| Java       | `buildscript-gradle.lockfile`<br>`gradle.lockfile`<br>`pom.xml`[\*](https://github.com/google/osv-scanner/issues/35)     |
-| Javascript | `package-lock.json`<br>`pnpm-lock.yaml`<br>`yarn.lock`                                                                   |
-| PHP        | `composer.lock`                                                                                                          |
-| Python     | `Pipfile.lock`<br>`poetry.lock`<br>`requirements.txt`<br>`pdm.lock`[\*](https://github.com/google/osv-scanner/issues/34) |
-| R          | `renv.lock`                                                                                                              |
-| Ruby       | `Gemfile.lock`                                                                                                           |
-| Rust       | `Cargo.lock`                                                                                                             |
+| Language   | Compatible Lockfile(s)                                                                                                                     |
+| :--------- | :----------------------------------------------------------------------------------------------------------------------------------------- |
+| C/C++      | `conan.lock`<br>[C/C++ commit scanning](#cc-scanning)                                                                                      |
+| Dart       | `pubspec.lock`                                                                                                                             |
+| Elixir     | `mix.lock`                                                                                                                                 |
+| Go         | `go.mod`                                                                                                                                   |
+| Java       | `buildscript-gradle.lockfile`<br>`gradle.lockfile`<br>`gradle/verification-metadata.xml`<br>`pom.xml`[\*](#transitive-dependency-scanning) |
+| Javascript | `package-lock.json`<br>`pnpm-lock.yaml`<br>`yarn.lock`                                                                                     |
+| PHP        | `composer.lock`                                                                                                                            |
+| Python     | `Pipfile.lock`<br>`poetry.lock`<br>`requirements.txt`[\*](https://github.com/google/osv-scanner/issues/34)<br>`pdm.lock`                   |
+| R          | `renv.lock`                                                                                                                                |
+| Ruby       | `Gemfile.lock`                                                                                                                             |
+| Rust       | `Cargo.lock`                                                                                                                               |
 
-## Alpine Package Keeper and Debian Package Keeper
+## Alpine Package Keeper and Debian Package Manager
 
 The scanner also supports:
 
@@ -69,6 +69,25 @@ Submoduled dependencies are included in the project folder retain their Git hist
 ### Vendored dependencies
 
 Vendored dependencies have been directly copied into the project folder, but do not retain their Git histories. OSV-Scanner uses OSV's [determineversion API](https://google.github.io/osv.dev/post-v1-determineversion/) to estimate each dependency's version (and associated Git Commit). Vulnerabilities for the estimated version are returned. This process requires no additional work from the user. Run OSV-Scanner as you normally would.
+
+## Transitive dependency scanning
+
+OSV-Scanner supports transitive dependency scanning for Maven pom.xml. This feature is enabled by default when scanning, but it can be disabled using the `--experimental-no-resolve` flag. It is also disabled in the [offline mode](./offline-mode.md).
+
+OSV-Scanner uses [deps.dev’s resolver library](https://pkg.go.dev/deps.dev/util/resolve) to compute the dependency graph of a project. This graph includes all of the direct and transitive dependencies. By default, [deps.dev API](https://docs.deps.dev/api/v3/index.html) is queried for package versions and requirements. The support for private registries is [coming soon](https://github.com/google/osv-scanner/issues/1045).
+
+After the dependency resolution, the OSV database is queried for the vulnerabilities associated with these dependencies as usual.
+
+{: .note }
+Test dependencies are not supported yet in the computed dependency graph for Maven pom.xml.
+
+### Data source
+
+By default, we use the [deps.dev API](https://docs.deps.dev/api/v3/) to find version and dependency information of packages during transitive scanning.
+
+If instead you'd like to fetch data from [Maven Central](https://repo.maven.apache.org/maven2/), you can use the `--experimental-resolution-data-source=native` flag.
+
+If your project uses mirrored or private registries, in addition to setting `--experimental-resolution-data-source=native`, you will need to use the `--experimental-maven-registry=<full-registry-url>` flag to specify the registry (e.g. `--experimental-maven-registry=https://repo.maven.apache.org/maven2/`).
 
 ## Custom Lockfiles
 

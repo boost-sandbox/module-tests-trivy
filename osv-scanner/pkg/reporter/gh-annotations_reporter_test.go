@@ -1,19 +1,21 @@
-package reporter
+package reporter_test
 
 import (
 	"bytes"
 	"io"
 	"testing"
+
+	"github.com/google/osv-scanner/pkg/reporter"
 )
 
 func TestGHAnnotationsReporter_Errorf(t *testing.T) {
 	t.Parallel()
 
 	writer := &bytes.Buffer{}
-	r := NewGHAnnotationsReporter(io.Discard, writer, ErrorLevel)
+	r := reporter.NewGHAnnotationsReporter(io.Discard, writer, reporter.ErrorLevel)
 	text := "hello world!"
 
-	r.Errorf(text)
+	r.Errorf("%s", text)
 
 	if writer.String() != text {
 		t.Error("Error level message should have been printed")
@@ -28,21 +30,21 @@ func TestGHAnnotationsReporter_Warnf(t *testing.T) {
 
 	text := "hello world!"
 	tests := []struct {
-		lvl              VerbosityLevel
+		lvl              reporter.VerbosityLevel
 		expectedPrintout string
 	}{
-		{lvl: WarnLevel, expectedPrintout: text},
-		{lvl: ErrorLevel, expectedPrintout: ""},
+		{lvl: reporter.WarnLevel, expectedPrintout: text},
+		{lvl: reporter.ErrorLevel, expectedPrintout: ""},
 	}
 
-	for _, test := range tests {
+	for _, tt := range tests {
 		writer := &bytes.Buffer{}
-		r := NewGHAnnotationsReporter(io.Discard, writer, test.lvl)
+		r := reporter.NewGHAnnotationsReporter(io.Discard, writer, tt.lvl)
 
-		r.Warnf(text)
+		r.Warnf("%s", text)
 
-		if writer.String() != test.expectedPrintout {
-			t.Errorf("expected \"%s\", got \"%s\"", test.expectedPrintout, writer.String())
+		if writer.String() != tt.expectedPrintout {
+			t.Errorf("expected \"%s\", got \"%s\"", tt.expectedPrintout, writer.String())
 		}
 	}
 }
@@ -52,18 +54,18 @@ func TestGHAnnotationsReporter_Infof(t *testing.T) {
 
 	text := "hello world!"
 	tests := []struct {
-		lvl              VerbosityLevel
+		lvl              reporter.VerbosityLevel
 		expectedPrintout string
 	}{
-		{lvl: InfoLevel, expectedPrintout: text},
-		{lvl: WarnLevel, expectedPrintout: ""},
+		{lvl: reporter.InfoLevel, expectedPrintout: text},
+		{lvl: reporter.WarnLevel, expectedPrintout: ""},
 	}
 
 	for _, test := range tests {
 		writer := &bytes.Buffer{}
-		r := NewGHAnnotationsReporter(io.Discard, writer, test.lvl)
+		r := reporter.NewGHAnnotationsReporter(io.Discard, writer, test.lvl)
 
-		r.Infof(text)
+		r.Infof("%s", text)
 
 		if writer.String() != test.expectedPrintout {
 			t.Errorf("expected \"%s\", got \"%s\"", test.expectedPrintout, writer.String())
@@ -76,18 +78,18 @@ func TestGHAnnotationsReporter_Verbosef(t *testing.T) {
 
 	text := "hello world!"
 	tests := []struct {
-		lvl              VerbosityLevel
+		lvl              reporter.VerbosityLevel
 		expectedPrintout string
 	}{
-		{lvl: VerboseLevel, expectedPrintout: text},
-		{lvl: InfoLevel, expectedPrintout: ""},
+		{lvl: reporter.VerboseLevel, expectedPrintout: text},
+		{lvl: reporter.InfoLevel, expectedPrintout: ""},
 	}
 
 	for _, test := range tests {
 		writer := &bytes.Buffer{}
-		r := NewGHAnnotationsReporter(io.Discard, writer, test.lvl)
+		r := reporter.NewGHAnnotationsReporter(io.Discard, writer, test.lvl)
 
-		r.Verbosef(text)
+		r.Verbosef("%s", text)
 
 		if writer.String() != test.expectedPrintout {
 			t.Errorf("expected \"%s\", got \"%s\"", test.expectedPrintout, writer.String())

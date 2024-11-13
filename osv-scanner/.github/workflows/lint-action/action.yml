@@ -19,9 +19,7 @@ runs:
   using: composite
   steps:
     - name: Run golangci-lint
-      uses: golangci/golangci-lint-action@3cfe3a4abbb849e10058ce4af15d205b6da42804 # v3.7.1
+      uses: golangci/golangci-lint-action@971e284b6050e8a5849b72094c50ab08da042db8 # v6.1.1
       with:
         # Optional: version of golangci-lint to use in form of v1.2 or v1.2.3 or `latest` to use the latest version
-        version: v1.55.2
-        # https://github.com/golangci/golangci-lint-action/issues/135
-        skip-pkg-cache: true
+        version: v1.61.0

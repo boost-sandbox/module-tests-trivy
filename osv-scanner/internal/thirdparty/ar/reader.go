@@ -24,7 +24,7 @@ package ar
 
 import (
 	"bytes"
-	"fmt"
+	"errors"
 	"io"
 	"strconv"
 	"strings"
@@ -80,7 +80,7 @@ func NewReader(r io.Reader) (*Reader, error) {
 	_, _ = io.CopyN(&sigBuf, r, 8) // Discard global header
 
 	if sigBuf.String() != ArSignature {
-		return nil, fmt.Errorf("not an rlib archive")
+		return nil, errors.New("not an rlib archive")
 	}
 
 	return &Reader{r: r}, nil
@@ -118,10 +118,11 @@ func (rd *Reader) skipUnread() error {
 	if seeker, ok := rd.r.(io.Seeker); ok {
 		_, err := seeker.Seek(bytesToSkip, io.SeekCurrent)
 		return err
-	} else {
-		_, err := io.CopyN(io.Discard, rd.r, bytesToSkip)
-		return err
 	}
+
+	_, err := io.CopyN(io.Discard, rd.r, bytesToSkip)
+
+	return err
 }
 
 func (rd *Reader) readHeader() (*Header, error) {

@@ -43,9 +43,9 @@ type model struct {
 	err     error      // set if a fatal error occurs within the program
 	writing bool       // whether the model is currently shelling out writing lockfile/manifest file
 
-	inPlaceResult     *remediation.InPlaceResult   // results & patches from minimal / in-place resolution
-	relockBaseRes     *resolution.ResolutionResult // Base relock result, matching the current manifest on disk
-	relockBaseResErrs []resolution.ResolutionError // Errors in base relock result
+	inPlaceResult     *remediation.InPlaceResult // results & patches from minimal / in-place resolution
+	relockBaseRes     *resolution.Result         // Base relock result, matching the current manifest on disk
+	relockBaseResErrs []resolution.NodeError     // Errors in base relock result
 }
 
 func newModel(ctx context.Context, opts osvFixOptions, cl client.ResolutionClient) model {
@@ -94,11 +94,11 @@ func (m *model) setTermSize(w, h int) {
 	// resize the views to the calculated dimensions
 	m.mainViewWidth = viewWidth
 	m.mainViewHeight = viewHeight
-	m.mainViewStyle.Width(paddedWidth).Height(paddedHeight)
+	m.mainViewStyle = m.mainViewStyle.Width(paddedWidth).Height(paddedHeight)
 
 	m.infoViewWidth = viewWidth
 	m.infoViewHeight = viewHeight
-	m.infoViewStyle.Width(paddedWidth).Height(paddedHeight)
+	m.infoViewStyle = m.infoViewStyle.Width(paddedWidth).Height(paddedHeight)
 
 	m.st.Resize(m.mainViewWidth, m.mainViewHeight)
 	m.st.ResizeInfo(m.infoViewWidth, m.infoViewHeight)
@@ -106,11 +106,11 @@ func (m *model) setTermSize(w, h int) {
 
 func (m *model) getBorderStyles() (lipgloss.Style, lipgloss.Style) {
 	if m.st.IsInfoFocused() {
-		m.infoViewStyle.UnsetBorderForeground()
-		m.mainViewStyle.BorderForeground(tui.ColorDisabled)
+		m.infoViewStyle = m.infoViewStyle.UnsetBorderForeground()
+		m.mainViewStyle = m.mainViewStyle.BorderForeground(tui.ColorDisabled)
 	} else {
-		m.infoViewStyle.BorderForeground(tui.ColorDisabled)
-		m.mainViewStyle.UnsetBorderForeground()
+		m.infoViewStyle = m.infoViewStyle.BorderForeground(tui.ColorDisabled)
+		m.mainViewStyle = m.mainViewStyle.UnsetBorderForeground()
 	}
 
 	return m.mainViewStyle, m.infoViewStyle
@@ -191,18 +191,18 @@ func doInPlaceResolution(ctx context.Context, cl client.ResolutionClient, opts o
 	if err != nil {
 		return inPlaceResolutionMsg{err: err}
 	}
-	res, err := remediation.ComputeInPlacePatches(ctx, cl, g, opts.RemediationOptions)
+	res, err := remediation.ComputeInPlacePatches(ctx, cl, g, opts.Options)
 
 	return inPlaceResolutionMsg{res, g, err}
 }
 
 type doRelockMsg struct {
-	res *resolution.ResolutionResult
+	res *resolution.Result
 	err error
 }
 
-func doRelock(ctx context.Context, cl client.ResolutionClient, m manif.Manifest, matchFn func(resolution.ResolutionVuln) bool) tea.Msg {
-	res, err := resolution.Resolve(ctx, cl, m)
+func doRelock(ctx context.Context, cl client.ResolutionClient, m manif.Manifest, opts resolution.ResolveOpts, matchFn func(resolution.Vulnerability) bool) tea.Msg {
+	res, err := resolution.Resolve(ctx, cl, m, opts)
 	if err != nil {
 		return doRelockMsg{nil, err}
 	}
@@ -226,9 +226,9 @@ func doInitialRelock(ctx context.Context, opts osvFixOptions) tea.Msg {
 	if err != nil {
 		return doRelockMsg{err: err}
 	}
-	opts.Client.PreFetch(ctx, m.Requirements, m.FilePath)
+	client.PreFetch(ctx, opts.Client, m.Requirements, m.FilePath)
 
-	return doRelock(ctx, opts.Client, m, opts.MatchVuln)
+	return doRelock(ctx, opts.Client, m, opts.ResolveOpts, opts.MatchVuln)
 }
 
 // tui.ViewModel for showing non-interactive strings
@@ -240,7 +240,7 @@ func (s infoStringView) Resize(int, int)                         {}
 
 var emptyInfoView = infoStringView("")
 
-func resolutionErrorView(res *resolution.ResolutionResult, errs []resolution.ResolutionError) tui.ViewModel {
+func resolutionErrorView(res *resolution.Result, errs []resolution.NodeError) tui.ViewModel {
 	if len(errs) == 0 {
 		return emptyInfoView
 	}

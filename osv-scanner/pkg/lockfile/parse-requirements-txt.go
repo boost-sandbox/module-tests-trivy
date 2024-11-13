@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/google/osv-scanner/internal/cachedregexp"
+	"golang.org/x/exp/maps"
 )
 
 const PipEcosystem Ecosystem = "PyPI"
@@ -102,7 +103,9 @@ func isLineContinuation(line string) bool {
 type RequirementsTxtExtractor struct{}
 
 func (e RequirementsTxtExtractor) ShouldExtract(path string) bool {
-	return filepath.Base(path) == "requirements.txt"
+	base := filepath.Base(path)
+
+	return strings.Contains(base, "requirements") && strings.HasSuffix(base, ".txt")
 }
 
 func (e RequirementsTxtExtractor) Extract(f DepFile) ([]PackageDetails, error) {
@@ -192,7 +195,7 @@ func parseRequirementsTxt(f DepFile, requiredAlready map[string]struct{}) ([]Pac
 		return []PackageDetails{}, fmt.Errorf("error while scanning %s: %w", f.Path(), err)
 	}
 
-	return pkgDetailsMapToSlice(packages), nil
+	return maps.Values(packages), nil
 }
 
 var _ Extractor = RequirementsTxtExtractor{}
@@ -202,6 +205,7 @@ func init() {
 	registerExtractor("requirements.txt", RequirementsTxtExtractor{})
 }
 
+// Deprecated: use RequirementsTxtExtractor.Extract instead
 func ParseRequirementsTxt(pathToLockfile string) ([]PackageDetails, error) {
 	return extractFromFile(pathToLockfile, RequirementsTxtExtractor{})
 }

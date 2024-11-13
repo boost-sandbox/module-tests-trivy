@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [gitleaks, osv-scanner, rclone, kubeaudit]
+        target: [gitleaks, osv-scanner, rclone, kubeaudit, jenkins, dspace]
         environment: [prod, dev]
         include:
           - environment: prod

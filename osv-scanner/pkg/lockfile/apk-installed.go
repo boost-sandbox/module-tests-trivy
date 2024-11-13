@@ -3,11 +3,13 @@ package lockfile
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 )
 
 const AlpineEcosystem Ecosystem = "Alpine"
+const AlpineFallbackVersion = "v3.20"
 
 func groupApkPackageLines(scanner *bufio.Scanner) [][]string {
 	var groups [][]string
@@ -54,6 +56,7 @@ func parseApkPackageGroup(group []string) PackageDetails {
 	return pkg
 }
 
+// Deprecated: use ApkInstalledExtractor.Extract instead
 func ParseApkInstalled(pathToLockfile string) ([]PackageDetails, error) {
 	return extractFromFile(pathToLockfile, ApkInstalledExtractor{})
 }
@@ -81,11 +84,46 @@ func (e ApkInstalledExtractor) Extract(f DepFile) ([]PackageDetails, error) {
 		packages = append(packages, pkg)
 	}
 
+	alpineVersion, alpineVerErr := alpineReleaseExtractor(f)
+	if alpineVerErr != nil { // TODO: Log error? We might not be on a alpine system
+		// Alpine ecosystems MUST have a version suffix. Fallback to the latest version.
+		alpineVersion = AlpineFallbackVersion
+	}
+	for i := range packages {
+		packages[i].Ecosystem = Ecosystem(string(packages[i].Ecosystem) + ":" + alpineVersion)
+	}
+
 	if err := scanner.Err(); err != nil {
 		return packages, fmt.Errorf("error while scanning %s: %w", f.Path(), err)
 	}
 
 	return packages, nil
+}
+
+// alpineReleaseExtractor extracts the release version for an alpine distro
+// will return "" if no release version can be found, or if distro is not alpine
+func alpineReleaseExtractor(opener DepFile) (string, error) {
+	alpineReleaseFile, err := opener.Open("/etc/alpine-release")
+	if err != nil {
+		return "", err
+	}
+	defer alpineReleaseFile.Close()
+
+	// Read to string
+	buf := new(strings.Builder)
+	_, err = io.Copy(buf, alpineReleaseFile)
+	if err != nil {
+		return "", err
+	}
+
+	// We only care about the major and minor version
+	// because that's the Alpine version that advisories are published against
+	//
+	// E.g. 3.20.0_alpha20231219  --->  v3.20
+	valueSplit := strings.Split(buf.String(), ".")
+	returnVersion := "v" + valueSplit[0] + "." + valueSplit[1]
+
+	return returnVersion, nil
 }
 
 var _ Extractor = ApkInstalledExtractor{}

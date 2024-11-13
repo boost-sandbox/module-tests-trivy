@@ -94,7 +94,7 @@ func normalizePyPILegacyPart(part string) string {
 		return fmt.Sprintf("%08s", part)
 	}
 
-	return fmt.Sprintf("*%s", part)
+	return "*" + part
 }
 
 func parsePyPIVersionParts(str string) (parts []string) {
@@ -184,16 +184,6 @@ func (pv PyPIVersion) compareRelease(pw PyPIVersion) int {
 	return pv.release.Cmp(pw.release)
 }
 
-func (pv PyPIVersion) preIndex() int {
-	for i, pre := range []string{"a", "b", "rc"} {
-		if pre == pv.pre.letter {
-			return i
-		}
-	}
-
-	panic(fmt.Sprintf("unknown prefix %s", pv.pre.letter))
-}
-
 // Checks if this PyPIVersion should apply a sort trick when comparing pre,
 // which ensures that i.e. 1.0.dev0 is before 1.0a0.
 func (pv PyPIVersion) shouldApplyPreTrick() bool {
@@ -222,12 +212,8 @@ func (pv PyPIVersion) comparePre(pw PyPIVersion) int {
 	case pw.pre.number == nil:
 		return -1
 	default:
-		ai := pv.preIndex()
-		bi := pw.preIndex()
-
-		if ai == bi {
-			return pv.pre.number.Cmp(pw.pre.number)
-		}
+		ai := pv.pre.letter[0]
+		bi := pw.pre.letter[0]
 
 		if ai > bi {
 			return +1
@@ -236,7 +222,7 @@ func (pv PyPIVersion) comparePre(pw PyPIVersion) int {
 			return -1
 		}
 
-		return 0
+		return pv.pre.number.Cmp(pw.pre.number)
 	}
 }
 
@@ -282,11 +268,11 @@ func (pv PyPIVersion) compareDev(pw PyPIVersion) int {
 
 // Compares the local segment of each version
 func (pv PyPIVersion) compareLocal(pw PyPIVersion) int {
-	min := minInt(len(pv.local), len(pw.local))
+	minVersionLength := min(len(pv.local), len(pw.local))
 
 	var compare int
 
-	for i := 0; i < min; i++ {
+	for i := range minVersionLength {
 		ai, aIsNumber := convertToBigInt(pv.local[i])
 		bi, bIsNumber := convertToBigInt(pw.local[i])
 
