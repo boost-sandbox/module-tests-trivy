@@ -19,7 +19,7 @@ jobs:
             api_endpoint: https://api.boostsecurity.io
             api_token_secret_name: BOOST_API_KEY
           - environment: dev
-            registry_url: https://github.com/boostsecurityio/dev-registry.git
+            registry_url: https://github.com/boostsecurityio/dev-registry.git#maint/trivySbomBump
             api_endpoint: https://api.dev.boostsec.io
             api_token_secret_name: BOOST_API_KEY_DEV
     steps:
