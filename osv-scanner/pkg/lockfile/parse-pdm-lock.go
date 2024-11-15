@@ -74,7 +74,6 @@ func init() {
 	registerExtractor("pdm.lock", PdmLockExtractor{})
 }
 
-// Deprecated: use PdmLockExtractor.Extract instead
 func ParsePdmLock(pathToLockfile string) ([]PackageDetails, error) {
 	return extractFromFile(pathToLockfile, PdmLockExtractor{})
 }

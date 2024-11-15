@@ -18,11 +18,11 @@ import (
 )
 
 type stateRelockResult struct {
-	currRes      *resolution.Result      // In-progress relock result, with user-selected patches applied
-	currErrs     []resolution.NodeError  // In-progress relock errors
-	patches      []resolution.Difference // current possible patches applicable to relockCurrRes
-	patchesDone  bool                    // whether the relockPatches has finished being computed
-	numUnfixable int                     // count of unfixable vulns, for rendering
+	currRes      *resolution.ResolutionResult // In-progress relock result, with user-selected patches applied
+	currErrs     []resolution.ResolutionError // In-progress relock errors
+	patches      []resolution.ResolutionDiff  // current possible patches applicable to relockCurrRes
+	patchesDone  bool                         // whether the relockPatches has finished being computed
+	numUnfixable int                          // count of unfixable vulns, for rendering
 
 	spinner         spinner.Model
 	cursorPos       int              // TODO: use an enum ?
@@ -96,7 +96,7 @@ func (st *stateRelockResult) Init(m model) tea.Cmd {
 	st.viewWidth = m.mainViewWidth
 
 	// Make the vulnerability list view model
-	vulns := make([]*resolution.Vulnerability, len(st.currRes.Vulns))
+	vulns := make([]*resolution.ResolutionVuln, len(st.currRes.Vulns))
 	for i := range st.currRes.Vulns {
 		vulns[i] = &st.currRes.Vulns[i]
 	}
@@ -120,7 +120,7 @@ func (st *stateRelockResult) Update(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		st.currRes = msg.res
 		// recreate the vuln list info view
-		var vulns []*resolution.Vulnerability
+		var vulns []*resolution.ResolutionVuln
 		for i := range st.currRes.Vulns {
 			vulns = append(vulns, &st.currRes.Vulns[i])
 		}
@@ -276,7 +276,7 @@ func (st *stateRelockResult) relaxChoice(m model) (model, tea.Cmd) {
 			st.currErrs = st.currRes.Errors()
 			st.resolveErrors = resolutionErrorView(st.currRes, st.currErrs)
 			// recreate vuln list view
-			var vulns []*resolution.Vulnerability
+			var vulns []*resolution.ResolutionVuln
 			for i := range st.currRes.Vulns {
 				vulns = append(vulns, &st.currRes.Vulns[i])
 			}
@@ -305,7 +305,7 @@ func (st *stateRelockResult) relaxChoice(m model) (model, tea.Cmd) {
 	st.currRes = nil
 
 	return m, func() tea.Msg {
-		return doRelock(m.ctx, m.cl, manifest, m.options.ResolveOpts, m.options.MatchVuln)
+		return doRelock(m.ctx, m.cl, manifest, m.options.MatchVuln)
 	}
 }
 
@@ -384,7 +384,7 @@ func (st *stateRelockResult) View(m model) string {
 			if st.patchCompatible(i) {
 				textSt = lipgloss.NewStyle()
 			} else {
-				textSt = tui.DisabledTextStyle
+				textSt = tui.DisabledTextStyle.Copy()
 			}
 			text = textSt.Width(st.viewWidth - lipgloss.Width(checkBox)).Render(text)
 			patchStrs[i] = lipgloss.JoinHorizontal(lipgloss.Top, checkBox, text)
@@ -425,7 +425,7 @@ func (st *stateRelockResult) View(m model) string {
 	return s.String()
 }
 
-func diffString(diff resolution.Difference) string {
+func diffString(diff resolution.ResolutionDiff) string {
 	var depStr string
 	if len(diff.Deps) == 1 {
 		dep := diff.Deps[0]
@@ -469,7 +469,7 @@ func (st *stateRelockResult) patchCompatible(idx int) bool {
 	return true
 }
 
-func (st *stateRelockResult) Resize(w, _ int) {
+func (st *stateRelockResult) Resize(w, h int) {
 	st.viewWidth = w
 }
 
@@ -487,7 +487,7 @@ func (st *stateRelockResult) IsInfoFocused() bool {
 // TODO: Work out a better way to output npm commands
 func (st *stateRelockResult) write(m model) tea.Msg {
 	changes := m.relockBaseRes.CalculateDiff(st.currRes)
-	if err := manif.Overwrite(m.options.ManifestRW, m.options.Manifest, changes.Patch); err != nil {
+	if err := manif.Overwrite(m.options.ManifestRW, m.options.Manifest, changes.ManifestPatch); err != nil {
 		return writeMsg{err}
 	}
 
@@ -518,13 +518,13 @@ func (st *stateRelockResult) write(m model) tea.Msg {
 }
 
 type relockPatchMsg struct {
-	patches []resolution.Difference
+	patches []resolution.ResolutionDiff
 	err     error
 }
 
 // Find all groups of dependency bumps required to resolve each vulnerability individually
-func doComputeRelockPatches(ctx context.Context, cl client.ResolutionClient, currRes *resolution.Result, opts osvFixOptions) relockPatchMsg {
-	patches, err := remediation.ComputeRelaxPatches(ctx, cl, currRes, opts.Options)
+func doComputeRelockPatches(ctx context.Context, cl client.ResolutionClient, currRes *resolution.ResolutionResult, opts osvFixOptions) relockPatchMsg {
+	patches, err := remediation.ComputeRelaxPatches(ctx, cl, currRes, opts.RemediationOptions)
 	if err != nil {
 		return relockPatchMsg{err: err}
 	}

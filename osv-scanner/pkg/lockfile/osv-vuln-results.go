@@ -7,14 +7,13 @@ import (
 	"github.com/google/osv-scanner/pkg/models"
 )
 
-// Deprecated: use OSVScannerResultsExtractor.Extract instead
 func ParseOSVScannerResults(pathToLockfile string) ([]PackageDetails, error) {
 	return extractFromFile(pathToLockfile, OSVScannerResultsExtractor{})
 }
 
 type OSVScannerResultsExtractor struct{}
 
-func (e OSVScannerResultsExtractor) ShouldExtract(_ string) bool {
+func (e OSVScannerResultsExtractor) ShouldExtract(path string) bool {
 	// The output will always be a custom json file, so don't return a default should extract
 	return false
 }

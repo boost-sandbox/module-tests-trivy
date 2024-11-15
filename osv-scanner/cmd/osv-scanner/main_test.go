@@ -3,10 +3,10 @@ package main
 
 import (
 	"bytes"
-	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -14,6 +14,19 @@ import (
 	"github.com/google/osv-scanner/internal/testutility"
 	"github.com/urfave/cli/v2"
 )
+
+func createTestDir(t *testing.T) (string, func()) {
+	t.Helper()
+
+	p, err := os.MkdirTemp("", "osv-scanner-test-*")
+	if err != nil {
+		t.Fatalf("could not create test directory: %v", err)
+	}
+
+	return p, func() {
+		_ = os.RemoveAll(p)
+	}
+}
 
 type cliTestCase struct {
 	name string
@@ -49,25 +62,7 @@ func normalizeRootDirectory(t *testing.T, str string) string {
 	return strings.ReplaceAll(str, cwd, "<rootdir>")
 }
 
-// normalizeUserCacheDirectory attempts to replace references to the current working
-// directory with "<tempdir>", in order to reduce the noise of the cmp diff
-func normalizeUserCacheDirectory(t *testing.T, str string) string {
-	t.Helper()
-
-	cacheDir, err := os.UserCacheDir()
-	if err != nil {
-		t.Errorf("could not get user cache (%v) - results and diff might be inaccurate!", err)
-	}
-
-	cacheDir = normalizeFilePaths(t, cacheDir)
-
-	// file uris with Windows end up with three slashes, so we normalize that too
-	str = strings.ReplaceAll(str, "file:///"+cacheDir, "file://<tempdir>")
-
-	return strings.ReplaceAll(str, cacheDir, "<tempdir>")
-}
-
-// normalizeTempDirectory attempts to replace references to the temp directory
+// normalizeRootDirectory attempts to replace references to the temp directory
 // with "<tempdir>", to ensure tests pass across different OSs
 func normalizeTempDirectory(t *testing.T, str string) string {
 	t.Helper()
@@ -86,7 +81,6 @@ func normalizeErrors(t *testing.T, str string) string {
 
 	str = strings.ReplaceAll(str, "The filename, directory name, or volume label syntax is incorrect.", "no such file or directory")
 	str = strings.ReplaceAll(str, "The system cannot find the path specified.", "no such file or directory")
-	str = strings.ReplaceAll(str, "The system cannot find the file specified.", "no such file or directory")
 
 	return str
 }
@@ -101,7 +95,6 @@ func normalizeStdStream(t *testing.T, std *bytes.Buffer) string {
 		normalizeFilePaths,
 		normalizeRootDirectory,
 		normalizeTempDirectory,
-		normalizeUserCacheDirectory,
 		normalizeErrors,
 	} {
 		str = normalizer(t, str)
@@ -110,28 +103,21 @@ func normalizeStdStream(t *testing.T, std *bytes.Buffer) string {
 	return str
 }
 
-func runCli(t *testing.T, tc cliTestCase) (string, string) {
+func testCli(t *testing.T, tc cliTestCase) {
 	t.Helper()
 
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
 	ec := run(tc.args, stdout, stderr)
+	// ec := run(tc.args, os.Stdout, os.Stderr)
 
 	if ec != tc.exit {
 		t.Errorf("cli exited with code %d, not %d", ec, tc.exit)
 	}
 
-	return normalizeStdStream(t, stdout), normalizeStdStream(t, stderr)
-}
-
-func testCli(t *testing.T, tc cliTestCase) {
-	t.Helper()
-
-	stdout, stderr := runCli(t, tc)
-
-	testutility.NewSnapshot().MatchText(t, stdout)
-	testutility.NewSnapshot().MatchText(t, stderr)
+	testutility.NewSnapshot().MatchText(t, normalizeStdStream(t, stdout))
+	testutility.NewSnapshot().MatchText(t, normalizeStdStream(t, stderr))
 }
 
 func TestRun(t *testing.T) {
@@ -144,7 +130,7 @@ func TestRun(t *testing.T) {
 			exit: 128,
 		},
 		{
-			name: "version",
+			name: "",
 			args: []string{"", "--version"},
 			exit: 0,
 		},
@@ -166,21 +152,9 @@ func TestRun(t *testing.T) {
 			args: []string{"", "--config=./fixtures/osv-scanner-empty-config.toml", "--sbom", "./fixtures/sbom-insecure/alpine.cdx.xml"},
 			exit: 1,
 		},
-		// one specific supported sbom with vulns and invalid PURLs
-		{
-			name: "one specific supported sbom with invalid PURLs",
-			args: []string{"", "--config=./fixtures/osv-scanner-empty-config.toml", "--sbom", "./fixtures/sbom-insecure/bad-purls.cdx.xml"},
-			exit: 0,
-		},
-		// one specific supported sbom with duplicate PURLs
-		{
-			name: "one specific supported sbom with duplicate PURLs",
-			args: []string{"", "--config=./fixtures/osv-scanner-empty-config.toml", "--sbom", "./fixtures/sbom-insecure/with-duplicates.cdx.xml"},
-			exit: 1,
-		},
 		// one specific unsupported lockfile
 		{
-			name: "one specific unsupported lockfile",
+			name: "",
 			args: []string{"", "./fixtures/locks-many/not-a-lockfile.toml"},
 			exit: 128,
 		},
@@ -210,13 +184,13 @@ func TestRun(t *testing.T) {
 		},
 		// .gitignored files
 		{
-			name: ".gitignored files",
+			name: "",
 			args: []string{"", "--recursive", "./fixtures/locks-gitignore"},
 			exit: 0,
 		},
 		// ignoring .gitignore
 		{
-			name: "ignoring .gitignore",
+			name: "",
 			args: []string{"", "--recursive", "--no-ignore", "./fixtures/locks-gitignore"},
 			exit: 0,
 		},
@@ -255,35 +229,13 @@ func TestRun(t *testing.T) {
 		},
 		// output format: markdown table
 		{
-			name: "output format: markdown table",
+			name: "",
 			args: []string{"", "--format", "markdown", "--config", "./fixtures/osv-scanner-empty-config.toml", "./fixtures/locks-many/package-lock.json"},
-			exit: 1,
-		},
-		// output format: cyclonedx 1.4
-		{
-			name: "Empty cyclonedx 1.4 output",
-			args: []string{"", "--format", "cyclonedx-1-4", "./fixtures/locks-many/composer.lock"},
-			exit: 0,
-		},
-		{
-			name: "cyclonedx 1.4 output",
-			args: []string{"", "--config=./fixtures/osv-scanner-empty-config.toml", "--format", "cyclonedx-1-4", "--experimental-all-packages", "./fixtures/locks-insecure"},
-			exit: 1,
-		},
-		// output format: cyclonedx 1.5
-		{
-			name: "Empty cyclonedx 1.5 output",
-			args: []string{"", "--format", "cyclonedx-1-5", "./fixtures/locks-many/composer.lock"},
-			exit: 0,
-		},
-		{
-			name: "cyclonedx 1.5 output",
-			args: []string{"", "--config=./fixtures/osv-scanner-empty-config.toml", "--format", "cyclonedx-1-5", "--experimental-all-packages", "./fixtures/locks-insecure"},
 			exit: 1,
 		},
 		// output format: unsupported
 		{
-			name: "output format: unsupported",
+			name: "",
 			args: []string{"", "--format", "unknown", "./fixtures/locks-many/composer.lock"},
 			exit: 127,
 		},
@@ -308,90 +260,9 @@ func TestRun(t *testing.T) {
 			args: []string{"", "--verbosity", "info", "--format", "table", "./fixtures/locks-many/composer.lock"},
 			exit: 0,
 		},
-		{
-			name: "PURL SBOM case sensitivity (api)",
-			args: []string{"", "--config=./fixtures/osv-scanner-empty-config.toml", "--format", "table", "./fixtures/sbom-insecure/alpine.cdx.xml"},
-			exit: 1,
-		},
-		{
-			name: "PURL SBOM case sensitivity (local)",
-			args: []string{"", "--config=./fixtures/osv-scanner-empty-config.toml", "--experimental-offline", "--experimental-download-offline-databases", "--format", "table", "./fixtures/sbom-insecure/alpine.cdx.xml"},
-			exit: 1,
-		},
-		// Go project with an overridden go version
-		{
-			name: "Go project with an overridden go version",
-			args: []string{"", "--config=./fixtures/go-project/go-version-config.toml", "./fixtures/go-project"},
-			exit: 0,
-		},
-		// Go project with an overridden go version, recursive
-		{
-			name: "Go project with an overridden go version, recursive",
-			args: []string{"", "--config=./fixtures/go-project/go-version-config.toml", "-r", "./fixtures/go-project"},
-			exit: 0,
-		},
-		// broad config file that overrides a whole ecosystem
-		{
-			name: "config file can be broad",
-			args: []string{"", "--config=./fixtures/osv-scanner-composite-config.toml", "--experimental-licenses", "MIT", "-L", "osv-scanner:./fixtures/locks-insecure/osv-scanner-flutter-deps.json", "./fixtures/locks-many", "./fixtures/locks-insecure", "./fixtures/maven-transitive"},
-			exit: 1,
-		},
-		// ignored vulnerabilities and packages without a reason should be called out
-		{
-			name: "ignores without reason should be explicitly called out",
-			args: []string{"", "--config=./fixtures/osv-scanner-reasonless-ignores-config.toml", "./fixtures/locks-many/package-lock.json", "./fixtures/locks-many/composer.lock"},
-			exit: 0,
-		},
-		// invalid config file
-		{
-			name: "config file is invalid",
-			args: []string{"", "./fixtures/config-invalid"},
-			exit: 127,
-		},
-		{
-			name: "config file is invalid",
-			args: []string{"", "--verbosity", "verbose", "./fixtures/config-invalid"},
-			exit: 127,
-		},
-		// config file with unknown keys
-		{
-			name: "config files cannot have unknown keys",
-			args: []string{"", "--config=./fixtures/osv-scanner-unknown-config.toml", "./fixtures/locks-many"},
-			exit: 127,
-		},
-		// a bunch of requirements.txt files with different names
-		{
-			name: "requirements.txt can have all kinds of names",
-			args: []string{"", "--config=./fixtures/osv-scanner-empty-config.toml", "./fixtures/locks-requirements"},
-			exit: 1,
-		},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			testCli(t, tt)
-		})
-	}
-}
-
-func TestRunCallAnalysis(t *testing.T) {
-	t.Parallel()
-
-	// Switch to acceptance test if this takes too long, or when we add rust tests
-	// testutility.SkipIfNotAcceptanceTesting(t, "Takes a while to run")
-
-	tests := []cliTestCase{
-		{
-			name: "Run with govulncheck",
-			args: []string{"",
-				"--call-analysis=go",
-				"--config=./fixtures/osv-scanner-empty-config.toml",
-				"./fixtures/call-analysis-go-project"},
-			exit: 1,
-		},
-	}
-	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -404,13 +275,15 @@ func TestRun_LockfileWithExplicitParseAs(t *testing.T) {
 	t.Parallel()
 
 	tests := []cliTestCase{
+		// unsupported parse-as
 		{
-			name: "unsupported parse-as",
+			name: "",
 			args: []string{"", "-L", "my-file:./fixtures/locks-many/composer.lock"},
 			exit: 127,
 		},
+		// empty is default
 		{
-			name: "empty is default",
+			name: "",
 			args: []string{
 				"",
 				"-L",
@@ -418,8 +291,9 @@ func TestRun_LockfileWithExplicitParseAs(t *testing.T) {
 			},
 			exit: 0,
 		},
+		// empty works as an escape (no fixture because it's not valid on Windows)
 		{
-			name: "empty works as an escape (no fixture because it's not valid on Windows)",
+			name: "",
 			args: []string{
 				"",
 				"-L",
@@ -428,7 +302,7 @@ func TestRun_LockfileWithExplicitParseAs(t *testing.T) {
 			exit: 127,
 		},
 		{
-			name: "empty works as an escape (no fixture because it's not valid on Windows)",
+			name: "",
 			args: []string{
 				"",
 				"-L",
@@ -436,27 +310,28 @@ func TestRun_LockfileWithExplicitParseAs(t *testing.T) {
 			},
 			exit: 127,
 		},
+		// one lockfile with local path
 		{
 			name: "one lockfile with local path",
 			args: []string{"", "--lockfile=go.mod:./fixtures/locks-many/replace-local.mod"},
 			exit: 0,
 		},
+		// when an explicit parse-as is given, it's applied to that file
 		{
-			name: "when an explicit parse-as is given, it's applied to that file",
+			name: "",
 			args: []string{
 				"",
-				"--config=./fixtures/osv-scanner-empty-config.toml",
 				"-L",
 				"package-lock.json:" + filepath.FromSlash("./fixtures/locks-insecure/my-package-lock.json"),
 				filepath.FromSlash("./fixtures/locks-insecure"),
 			},
 			exit: 1,
 		},
+		// multiple, + output order is deterministic
 		{
-			name: "multiple, + output order is deterministic",
+			name: "",
 			args: []string{
 				"",
-				"--config=./fixtures/osv-scanner-empty-config.toml",
 				"-L", "package-lock.json:" + filepath.FromSlash("./fixtures/locks-insecure/my-package-lock.json"),
 				"-L", "yarn.lock:" + filepath.FromSlash("./fixtures/locks-insecure/my-yarn.lock"),
 				filepath.FromSlash("./fixtures/locks-insecure"),
@@ -464,18 +339,18 @@ func TestRun_LockfileWithExplicitParseAs(t *testing.T) {
 			exit: 1,
 		},
 		{
-			name: "multiple, + output order is deterministic 2",
+			name: "",
 			args: []string{
 				"",
-				"--config=./fixtures/osv-scanner-empty-config.toml",
 				"-L", "yarn.lock:" + filepath.FromSlash("./fixtures/locks-insecure/my-yarn.lock"),
 				"-L", "package-lock.json:" + filepath.FromSlash("./fixtures/locks-insecure/my-package-lock.json"),
 				filepath.FromSlash("./fixtures/locks-insecure"),
 			},
 			exit: 1,
 		},
+		// files that error on parsing stop parsable files from being checked
 		{
-			name: "files that error on parsing stop parsable files from being checked",
+			name: "",
 			args: []string{
 				"",
 				"-L",
@@ -485,8 +360,9 @@ func TestRun_LockfileWithExplicitParseAs(t *testing.T) {
 			},
 			exit: 127,
 		},
+		// parse-as takes priority, even if it's wrong
 		{
-			name: "parse-as takes priority, even if it's wrong",
+			name: "",
 			args: []string{
 				"",
 				"-L",
@@ -494,8 +370,9 @@ func TestRun_LockfileWithExplicitParseAs(t *testing.T) {
 			},
 			exit: 127,
 		},
+		// "apk-installed" is supported
 		{
-			name: "\"apk-installed\" is supported",
+			name: "",
 			args: []string{
 				"",
 				"-L",
@@ -503,8 +380,9 @@ func TestRun_LockfileWithExplicitParseAs(t *testing.T) {
 			},
 			exit: 0,
 		},
+		// "dpkg-status" is supported
 		{
-			name: "\"dpkg-status\" is supported",
+			name: "",
 			args: []string{
 				"",
 				"-L",
@@ -514,6 +392,7 @@ func TestRun_LockfileWithExplicitParseAs(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -529,16 +408,17 @@ func TestRun_GithubActions(t *testing.T) {
 	tests := []cliTestCase{
 		{
 			name: "scanning osv-scanner custom format",
-			args: []string{"", "--config=./fixtures/osv-scanner-empty-config.toml", "-L", "osv-scanner:./fixtures/locks-insecure/osv-scanner-flutter-deps.json"},
+			args: []string{"", "-L", "osv-scanner:./fixtures/locks-insecure/osv-scanner-flutter-deps.json"},
 			exit: 1,
 		},
 		{
 			name: "scanning osv-scanner custom format output json",
-			args: []string{"", "--config=./fixtures/osv-scanner-empty-config.toml", "-L", "osv-scanner:./fixtures/locks-insecure/osv-scanner-flutter-deps.json", "--format=sarif"},
+			args: []string{"", "-L", "osv-scanner:./fixtures/locks-insecure/osv-scanner-flutter-deps.json", "--format=sarif"},
 			exit: 1,
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -551,109 +431,88 @@ func TestRun_LocalDatabases(t *testing.T) {
 	t.Parallel()
 
 	tests := []cliTestCase{
+		// one specific supported lockfile
 		{
-			name: "one specific supported lockfile",
-			args: []string{"", "--experimental-offline", "--experimental-download-offline-databases", "./fixtures/locks-many/composer.lock"},
+			name: "",
+			args: []string{"", "--experimental-local-db", "./fixtures/locks-many/composer.lock"},
 			exit: 0,
 		},
+		// one specific supported sbom with vulns
 		{
-			name: "one specific supported sbom with vulns",
-			args: []string{"", "--experimental-offline", "--experimental-download-offline-databases", "--config=./fixtures/osv-scanner-empty-config.toml", "./fixtures/sbom-insecure/postgres-stretch.cdx.xml"},
+			name: "",
+			args: []string{"", "--experimental-local-db", "--config=./fixtures/osv-scanner-empty-config.toml", "./fixtures/sbom-insecure/postgres-stretch.cdx.xml"},
 			exit: 1,
 		},
+		// one specific unsupported lockfile
 		{
-			name: "one specific unsupported lockfile",
-			args: []string{"", "--experimental-offline", "--experimental-download-offline-databases", "./fixtures/locks-many/not-a-lockfile.toml"},
+			name: "",
+			args: []string{"", "--experimental-local-db", "./fixtures/locks-many/not-a-lockfile.toml"},
 			exit: 128,
 		},
+		// all supported lockfiles in the directory should be checked
 		{
-			name: "all supported lockfiles in the directory should be checked",
-			args: []string{"", "--experimental-offline", "--experimental-download-offline-databases", "./fixtures/locks-many"},
+			name: "",
+			args: []string{"", "--experimental-local-db", "./fixtures/locks-many"},
 			exit: 0,
 		},
+		// all supported lockfiles in the directory should be checked
 		{
-			name: "all supported lockfiles in the directory should be checked",
-			args: []string{"", "--experimental-offline", "--experimental-download-offline-databases", "./fixtures/locks-many-with-invalid"},
+			name: "",
+			args: []string{"", "--experimental-local-db", "./fixtures/locks-many-with-invalid"},
 			exit: 127,
 		},
+		// only the files in the given directories are checked by default (no recursion)
 		{
-			name: "only the files in the given directories are checked by default (no recursion)",
-			args: []string{"", "--experimental-offline", "--experimental-download-offline-databases", "./fixtures/locks-one-with-nested"},
+			name: "",
+			args: []string{"", "--experimental-local-db", "./fixtures/locks-one-with-nested"},
+			exit: 0,
+		},
+		// nested directories are checked when `--recursive` is passed
+		{
+			name: "",
+			args: []string{"", "--experimental-local-db", "--recursive", "./fixtures/locks-one-with-nested"},
+			exit: 0,
+		},
+		// .gitignored files
+		{
+			name: "",
+			args: []string{"", "--experimental-local-db", "--recursive", "./fixtures/locks-gitignore"},
+			exit: 0,
+		},
+		// ignoring .gitignore
+		{
+			name: "",
+			args: []string{"", "--experimental-local-db", "--recursive", "--no-ignore", "./fixtures/locks-gitignore"},
+			exit: 0,
+		},
+		// output with json
+		{
+			name: "",
+			args: []string{"", "--experimental-local-db", "--json", "./fixtures/locks-many/composer.lock"},
 			exit: 0,
 		},
 		{
-			name: "nested directories are checked when `--recursive` is passed",
-			args: []string{"", "--experimental-offline", "--experimental-download-offline-databases", "--recursive", "./fixtures/locks-one-with-nested"},
+			name: "",
+			args: []string{"", "--experimental-local-db", "--format", "json", "./fixtures/locks-many/composer.lock"},
 			exit: 0,
 		},
+		// output format: markdown table
 		{
-			name: ".gitignored files",
-			args: []string{"", "--experimental-offline", "--experimental-download-offline-databases", "--recursive", "./fixtures/locks-gitignore"},
+			name: "",
+			args: []string{"", "--experimental-local-db", "--format", "markdown", "./fixtures/locks-many/composer.lock"},
 			exit: 0,
-		},
-		{
-			name: "ignoring .gitignore",
-			args: []string{"", "--experimental-offline", "--experimental-download-offline-databases", "--recursive", "--no-ignore", "./fixtures/locks-gitignore"},
-			exit: 0,
-		},
-		{
-			name: "output with json",
-			args: []string{"", "--experimental-offline", "--experimental-download-offline-databases", "--json", "./fixtures/locks-many/composer.lock"},
-			exit: 0,
-		},
-		{
-			name: "output with json",
-			args: []string{"", "--experimental-offline", "--experimental-download-offline-databases", "--format", "json", "./fixtures/locks-many/composer.lock"},
-			exit: 0,
-		},
-		{
-			name: "output format: markdown table",
-			args: []string{"", "--experimental-offline", "--experimental-download-offline-databases", "--format", "markdown", "./fixtures/locks-many/composer.lock"},
-			exit: 0,
-		},
-		{
-			name: "database should be downloaded only when offline is set",
-			args: []string{"", "--experimental-download-offline-databases", "./fixtures/locks-many"},
-			exit: 127,
 		},
 	}
-
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if testutility.IsAcceptanceTest() {
-				testDir := testutility.CreateTestDir(t)
-				old := tt.args
-				tt.args = []string{"", "--experimental-local-db-path", testDir}
-				tt.args = append(tt.args, old[1:]...)
-			}
+			testDir, cleanupTestDir := createTestDir(t)
+			defer cleanupTestDir()
 
-			// run each test twice since they should provide the same output,
-			// and the second run should be fast as the db is already available
-			testCli(t, tt)
-			testCli(t, tt)
-		})
-	}
-}
-
-func TestRun_LocalDatabases_AlwaysOffline(t *testing.T) {
-	t.Parallel()
-
-	tests := []cliTestCase{
-		{
-			name: "a bunch of different lockfiles and ecosystem",
-			args: []string{"", "--config=./fixtures/osv-scanner-empty-config.toml", "--experimental-offline", "./fixtures/locks-requirements", "./fixtures/locks-many"},
-			exit: 127,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			testDir := testutility.CreateTestDir(t)
 			old := tt.args
+
 			tt.args = []string{"", "--experimental-local-db-path", testDir}
 			tt.args = append(tt.args, old[1:]...)
 
@@ -699,11 +558,6 @@ func TestRun_Licenses(t *testing.T) {
 			exit: 1,
 		},
 		{
-			name: "Some packages with ignored licenses",
-			args: []string{"", "--config=./fixtures/osv-scanner-complex-licenses-config.toml", "--experimental-licenses", "MIT", "./fixtures/locks-many", "./fixtures/locks-insecure"},
-			exit: 1,
-		},
-		{
 			name: "Some packages with license violations in json",
 			args: []string{"", "--format=json", "--experimental-licenses", "MIT", "./fixtures/locks-licenses/package-lock.json"},
 			exit: 1,
@@ -718,18 +572,9 @@ func TestRun_Licenses(t *testing.T) {
 			args: []string{"", "--format=json", "--experimental-licenses-summary", "./fixtures/locks-licenses/package-lock.json"},
 			exit: 0,
 		},
-		{
-			name: "Licenses with expressions",
-			args: []string{"", "--config=./fixtures/osv-scanner-expressive-licenses-config.toml", "--experimental-licenses", "MIT,BSD-3-Clause", "./fixtures/locks-licenses/package-lock.json"},
-			exit: 1,
-		},
-		{
-			name: "Licenses with invalid expression",
-			args: []string{"", "--config=./fixtures/osv-scanner-invalid-licenses-config.toml", "--experimental-licenses", "MIT,BSD-3-Clause", "./fixtures/locks-licenses/package-lock.json"},
-			exit: 1,
-		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -741,62 +586,27 @@ func TestRun_Licenses(t *testing.T) {
 func TestRun_OCIImage(t *testing.T) {
 	t.Parallel()
 
-	testutility.SkipIfNotAcceptanceTesting(t, "Not consistent on MacOS/Windows")
+	if //goland:noinspection GoBoolExpressions
+	runtime.GOOS == "windows" {
+		return
+	}
 
 	tests := []cliTestCase{
+		{
+			name: "Alpine 3.10 image tar",
+			args: []string{"", "--experimental-oci-image", "./fixtures/oci-image/alpine-tester.tar"},
+			exit: 1,
+		},
 		{
 			name: "Invalid path",
 			args: []string{"", "--experimental-oci-image", "./fixtures/oci-image/no-file-here.tar"},
 			exit: 127,
 		},
-		{
-			name: "Alpine 3.10 image tar with 3.18 version file",
-			args: []string{"", "--experimental-oci-image", "../../internal/image/fixtures/test-alpine.tar"},
-			exit: 1,
-		},
-		{
-			name: "scanning node_modules using npm with no packages",
-			args: []string{"", "--experimental-oci-image", "../../internal/image/fixtures/test-node_modules-npm-empty.tar"},
-			exit: 1,
-		},
-		{
-			name: "scanning node_modules using npm with some packages",
-			args: []string{"", "--experimental-oci-image", "../../internal/image/fixtures/test-node_modules-npm-full.tar"},
-			exit: 1,
-		},
-		{
-			name: "scanning node_modules using yarn with no packages",
-			args: []string{"", "--experimental-oci-image", "../../internal/image/fixtures/test-node_modules-yarn-empty.tar"},
-			exit: 1,
-		},
-		{
-			name: "scanning node_modules using yarn with some packages",
-			args: []string{"", "--experimental-oci-image", "../../internal/image/fixtures/test-node_modules-yarn-full.tar"},
-			exit: 1,
-		},
-		{
-			name: "scanning node_modules using pnpm with no packages",
-			args: []string{"", "--experimental-oci-image", "../../internal/image/fixtures/test-node_modules-pnpm-empty.tar"},
-			exit: 1,
-		},
-		{
-			name: "scanning node_modules using pnpm with some packages",
-			args: []string{"", "--experimental-oci-image", "../../internal/image/fixtures/test-node_modules-pnpm-full.tar"},
-			exit: 1,
-		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-
-			// point out that we need the images to be built and saved separately
-			for _, arg := range tt.args {
-				if strings.HasPrefix(arg, "../../internal/image/fixtures/") && strings.HasSuffix(arg, ".tar") {
-					if _, err := os.Stat(arg); errors.Is(err, os.ErrNotExist) {
-						t.Fatalf("%s does not exist - have you run scripts/build_test_images.sh?", arg)
-					}
-				}
-			}
 
 			testCli(t, tt)
 		})
@@ -828,6 +638,7 @@ func TestRun_SubCommands(t *testing.T) {
 		// TODO: add tests for other future subcommands
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -884,6 +695,7 @@ func TestRun_InsertDefaultCommand(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		stdout := &bytes.Buffer{}
 		stderr := &bytes.Buffer{}
 		argsActual := insertDefaultCommand(tt.originalArgs, commands, defaultCommand, stdout, stderr)
@@ -894,55 +706,5 @@ func TestRun_InsertDefaultCommand(t *testing.T) {
 		}
 		testutility.NewSnapshot().MatchText(t, normalizeStdStream(t, stdout))
 		testutility.NewSnapshot().MatchText(t, normalizeStdStream(t, stderr))
-	}
-}
-
-func TestRun_MavenTransitive(t *testing.T) {
-	t.Parallel()
-	tests := []cliTestCase{
-		{
-			name: "scans transitive dependencies for pom.xml by default",
-			args: []string{"", "--config=./fixtures/osv-scanner-empty-config.toml", "./fixtures/maven-transitive/pom.xml"},
-			exit: 1,
-		},
-		{
-			name: "scans transitive dependencies by specifying pom.xml",
-			args: []string{"", "--config=./fixtures/osv-scanner-empty-config.toml", "-L", "pom.xml:./fixtures/maven-transitive/abc.xml"},
-			exit: 1,
-		},
-		{
-			name: "scans pom.xml with non UTF-8 encoding",
-			args: []string{"", "--config=./fixtures/osv-scanner-empty-config.toml", "-L", "pom.xml:./fixtures/maven-transitive/encoding.xml"},
-			exit: 1,
-		},
-		{
-			// Direct dependencies do not have any vulnerability.
-			name: "does not scan transitive dependencies for pom.xml with offline mode",
-			args: []string{"", "--config=./fixtures/osv-scanner-empty-config.toml", "--experimental-offline", "--experimental-download-offline-databases", "./fixtures/maven-transitive/pom.xml"},
-			exit: 0,
-		},
-		{
-			// Direct dependencies do not have any vulnerability.
-			name: "does not scan transitive dependencies for pom.xml with no-resolve",
-			args: []string{"", "--config=./fixtures/osv-scanner-empty-config.toml", "--experimental-no-resolve", "./fixtures/maven-transitive/pom.xml"},
-			exit: 0,
-		},
-		{
-			name: "scans dependencies from multiple registries",
-			args: []string{"", "--config=./fixtures/osv-scanner-empty-config.toml", "-L", "pom.xml:./fixtures/maven-transitive/registry.xml"},
-			exit: 1,
-		},
-		{
-			name: "resolve transitive dependencies with native datda source",
-			args: []string{"", "--config=./fixtures/osv-scanner-empty-config.toml", "--experimental-resolution-data-source=native", "-L", "pom.xml:./fixtures/maven-transitive/registry.xml"},
-			exit: 1,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			testCli(t, tt)
-		})
 	}
 }

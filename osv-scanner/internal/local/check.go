@@ -1,12 +1,9 @@
 package local
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path"
-	"slices"
-	"strings"
 
 	"github.com/google/osv-scanner/pkg/lockfile"
 	"github.com/google/osv-scanner/pkg/models"
@@ -76,10 +73,10 @@ func setupLocalDBDirectory(localDBPath string) (string, error) {
 		}
 	}
 
-	altPath := path.Join(localDBPath, "osv-scanner")
-	err = os.MkdirAll(altPath, 0750)
+	err = os.MkdirAll(path.Join(localDBPath, "osv-scanner"), 0750)
+
 	if err == nil {
-		return altPath, nil
+		return path.Join(localDBPath, "osv-scanner"), nil
 	}
 
 	// if we're implicitly picking a path, try the temp directory before giving up
@@ -118,9 +115,6 @@ func MakeRequest(r reporter.Reporter, query osv.BatchedQuery, offline bool, loca
 		return db, nil
 	}
 
-	// slice to track ecosystems that did not have an offline database available
-	var missingDbs []string
-
 	for _, query := range query.Queries {
 		pkg, err := toPackageDetails(query)
 
@@ -135,7 +129,7 @@ func MakeRequest(r reporter.Reporter, query osv.BatchedQuery, offline bool, loca
 		if pkg.Ecosystem == "" {
 			if pkg.Commit == "" {
 				// The only time this can happen should be when someone passes in their own OSV-Scanner-Results file.
-				return nil, errors.New("ecosystem is empty and there is no commit hash")
+				return nil, fmt.Errorf("ecosystem is empty and there is no commit hash")
 			}
 
 			// Is a commit based query, skip local scanning
@@ -148,26 +142,14 @@ func MakeRequest(r reporter.Reporter, query osv.BatchedQuery, offline bool, loca
 		db, err := loadDBFromCache(pkg.Ecosystem)
 
 		if err != nil {
-			if errors.Is(err, ErrOfflineDatabaseNotFound) {
-				missingDbs = append(missingDbs, string(pkg.Ecosystem))
-			} else {
-				// the most likely error at this point is that the PURL could not be parsed
-				r.Errorf("could not load db for %s ecosystem: %v\n", pkg.Ecosystem, err)
-			}
-
+			// currently, this will actually only error if the PURL cannot be parses
+			r.Errorf("could not load db for %s ecosystem: %v\n", pkg.Ecosystem, err)
 			results = append(results, osv.Response{Vulns: []models.Vulnerability{}})
 
 			continue
 		}
 
 		results = append(results, osv.Response{Vulns: db.VulnerabilitiesAffectingPackage(pkg)})
-	}
-
-	if len(missingDbs) > 0 {
-		missingDbs = slices.Compact(missingDbs)
-		slices.Sort(missingDbs)
-
-		r.Errorf("could not find local databases for ecosystems: %s\n", strings.Join(missingDbs, ", "))
 	}
 
 	return &osv.HydratedBatchedResponse{Results: results}, nil

@@ -8,9 +8,9 @@ import (
 )
 
 type npmRegistryCache struct {
-	Timestamp *time.Time                           // Timestamp of when this cache was made
-	Details   map[string]npmRegistryPackageDetails // For a package name, the versions & their dependencies, and the list of tags
-	ScopeURLs map[string]string                    // The URL of the registry used for a given package @scope. Used to invalidate cache if registry has changed.
+	Timestamp    *time.Time
+	Details      map[string]npmRegistryPackageDetails
+	RegistryURLs map[string]string
 }
 
 func (c *NpmRegistryAPIClient) GobEncode() ([]byte, error) {
@@ -23,13 +23,15 @@ func (c *NpmRegistryAPIClient) GobEncode() ([]byte, error) {
 	}
 
 	cache := npmRegistryCache{
-		Timestamp: c.cacheTimestamp,
-		Details:   c.details.GetMap(),
-		ScopeURLs: make(map[string]string),
+		Timestamp:    c.cacheTimestamp,
+		Details:      c.details,
+		RegistryURLs: make(map[string]string),
 	}
 
 	// store the registry URL for each scope (but not the auth info)
-	cache.ScopeURLs = c.registries.ScopeURLs
+	for scope, reg := range c.registries {
+		cache.RegistryURLs[scope] = reg.URL
+	}
 
 	return gobMarshal(&cache)
 }
@@ -56,11 +58,11 @@ func (c *NpmRegistryAPIClient) GobDecode(b []byte) error {
 			scope, _, _ = strings.Cut(pkg, "/")
 		}
 
-		return cache.ScopeURLs[scope] != c.registries.ScopeURLs[scope]
+		return cache.RegistryURLs[scope] != c.registries[scope].URL
 	})
 
 	c.cacheTimestamp = cache.Timestamp
-	c.details.SetMap(cache.Details)
+	c.details = cache.Details
 
 	return nil
 }

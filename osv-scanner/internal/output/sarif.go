@@ -9,13 +9,13 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/google/osv-scanner/internal/identifiers"
 	"github.com/google/osv-scanner/internal/url"
 	"github.com/google/osv-scanner/internal/utility/results"
 	"github.com/google/osv-scanner/internal/version"
 	"github.com/google/osv-scanner/pkg/models"
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/owenrumney/go-sarif/v2/sarif"
+	"golang.org/x/exp/maps"
 )
 
 type HelpTemplateData struct {
@@ -25,7 +25,6 @@ type HelpTemplateData struct {
 	AliasedVulns          []VulnDescription
 	HasFixedVersion       bool
 	FixedVersionTable     string
-	PathSeparator         string
 }
 
 type FixedPkgTableData struct {
@@ -82,7 +81,7 @@ See the format and more options in our documentation here: https://google.github
 Add or append these values to the following config files to ignore this vulnerability:
 
 {{range .AffectedPackagePaths -}}
-""{{.}}{{$.PathSeparator}}osv-scanner.toml""
+""{{.}}/osv-scanner.toml""
 
 """"""
 [[IgnoredVulns]]
@@ -193,11 +192,17 @@ func createSARIFHelpText(gv *groupedSARIFFinding) string {
 			Details: strings.ReplaceAll(v.Details, "\n", "\n> "),
 		})
 	}
-	slices.SortFunc(vulnDescriptions, func(a, b VulnDescription) int { return identifiers.IDSortFunc(a.ID, b.ID) })
+	slices.SortFunc(vulnDescriptions, func(a, b VulnDescription) int { return idSortFunc(a.ID, b.ID) })
 
 	helpText := strings.Builder{}
 
-	pkgWithSrcKeys := gv.PkgSource.StableKeys()
+	pkgWithSrcKeys := maps.Keys(gv.PkgSource)
+	slices.SortFunc(pkgWithSrcKeys, func(a, b pkgWithSource) int {
+		// This doesn't take into account multiple packages within the same source file
+		// which will still be non deterministic. But since that is a rare edge case,
+		// no need to add significant extra logic here to make it deterministic.
+		return strings.Compare(a.Source.Path, b.Source.Path)
+	})
 
 	affectedPackagePaths := []string{}
 	for _, pws := range pkgWithSrcKeys {
@@ -214,7 +219,6 @@ func createSARIFHelpText(gv *groupedSARIFFinding) string {
 		HasFixedVersion:       hasFixedVersion,
 		FixedVersionTable:     createSARIFFixedPkgTable(fixedPkgTableData).RenderMarkdown(),
 		AffectedPackagePaths:  affectedPackagePaths,
-		PathSeparator:         string(filepath.Separator),
 	})
 
 	if err != nil {
@@ -253,7 +257,7 @@ func PrintSARIFReport(vulnResult *models.VulnerabilityResults, outputWriter io.W
 		// or use a random long description.
 		var shortDescription, longDescription string
 		ids := slices.Clone(gv.AliasedIDList)
-		slices.SortFunc(ids, identifiers.IDSortFuncForDescription)
+		slices.SortFunc(ids, idSortFuncForDescription)
 
 		for _, id := range ids {
 			v := gv.AliasedVulns[id]
@@ -278,8 +282,7 @@ func PrintSARIFReport(vulnResult *models.VulnerabilityResults, outputWriter io.W
 			WithTextHelp(helpText)
 
 		rule.DeprecatedIds = gv.AliasedIDList
-
-		for _, pws := range gv.PkgSource.StableKeys() {
+		for pws := range gv.PkgSource {
 			artifactPath := stripGitHubWorkspace(pws.Source.Path)
 			if filepath.IsAbs(artifactPath) {
 				// this only errors if the file path is not absolute,

@@ -1,28 +1,18 @@
-// Deprecated: this is now private and should not be used outside the scanner
 package config
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/google/osv-scanner/pkg/models"
 	"github.com/google/osv-scanner/pkg/reporter"
 )
 
 const osvScannerConfigName = "osv-scanner.toml"
 
-// Ignore stuttering as that would be a breaking change
-// TODO: V2 rename?
-//
-// Deprecated: this is now private and should not be used outside the scanner
-//
-//nolint:revive
 type ConfigManager struct {
 	// Override to replace all other configs
 	OverrideConfig *Config
@@ -32,166 +22,47 @@ type ConfigManager struct {
 	ConfigMap map[string]Config
 }
 
-// Deprecated: this is now private and should not be used outside the scanner
 type Config struct {
-	IgnoredVulns      []IgnoreEntry          `toml:"IgnoredVulns"`
-	PackageOverrides  []PackageOverrideEntry `toml:"PackageOverrides"`
-	GoVersionOverride string                 `toml:"GoVersionOverride"`
-	// The path to config file that this config was loaded from,
-	// set by the scanner after having successfully parsed the file
-	LoadPath string `toml:"-"`
+	IgnoredVulns []IgnoreEntry `toml:"IgnoredVulns"`
+	LoadPath     string        `toml:"LoadPath"`
 }
 
-// Deprecated: this is now private and should not be used outside the scanner
 type IgnoreEntry struct {
 	ID          string    `toml:"id"`
 	IgnoreUntil time.Time `toml:"ignoreUntil"`
 	Reason      string    `toml:"reason"`
 }
 
-// Deprecated: this is now private and should not be used outside the scanner
-type PackageOverrideEntry struct {
-	Name string `toml:"name"`
-	// If the version is empty, the entry applies to all versions.
-	Version        string        `toml:"version"`
-	Ecosystem      string        `toml:"ecosystem"`
-	Group          string        `toml:"group"`
-	Ignore         bool          `toml:"ignore"`
-	Vulnerability  Vulnerability `toml:"vulnerability"`
-	License        License       `toml:"license"`
-	EffectiveUntil time.Time     `toml:"effectiveUntil"`
-	Reason         string        `toml:"reason"`
-}
-
-func (e PackageOverrideEntry) matches(pkg models.PackageVulns) bool {
-	if e.Name != "" && e.Name != pkg.Package.Name {
-		return false
-	}
-	if e.Version != "" && e.Version != pkg.Package.Version {
-		return false
-	}
-	if e.Ecosystem != "" && e.Ecosystem != pkg.Package.Ecosystem {
-		return false
-	}
-	if e.Group != "" && !slices.Contains(pkg.DepGroups, e.Group) {
-		return false
-	}
-
-	return true
-}
-
-// Deprecated: this is now private and should not be used outside the scanner
-type Vulnerability struct {
-	Ignore bool `toml:"ignore"`
-}
-
-// Deprecated: this is now private and should not be used outside the scanner
-type License struct {
-	Override []string `toml:"override"`
-	Ignore   bool     `toml:"ignore"`
-}
-
-// Deprecated: this is now private and should not be used outside the scanner
 func (c *Config) ShouldIgnore(vulnID string) (bool, IgnoreEntry) {
-	index := slices.IndexFunc(c.IgnoredVulns, func(e IgnoreEntry) bool { return e.ID == vulnID })
+	index := slices.IndexFunc(c.IgnoredVulns, func(elem IgnoreEntry) bool { return elem.ID == vulnID })
 	if index == -1 {
 		return false, IgnoreEntry{}
 	}
 	ignoredLine := c.IgnoredVulns[index]
-
-	return shouldIgnoreTimestamp(ignoredLine.IgnoreUntil), ignoredLine
-}
-
-func (c *Config) filterPackageVersionEntries(pkg models.PackageVulns, condition func(PackageOverrideEntry) bool) (bool, PackageOverrideEntry) {
-	index := slices.IndexFunc(c.PackageOverrides, func(e PackageOverrideEntry) bool {
-		return e.matches(pkg) && condition(e)
-	})
-	if index == -1 {
-		return false, PackageOverrideEntry{}
-	}
-	ignoredLine := c.PackageOverrides[index]
-
-	return shouldIgnoreTimestamp(ignoredLine.EffectiveUntil), ignoredLine
-}
-
-// ShouldIgnorePackage determines if the given package should be ignored based on override entries in the config
-//
-// Deprecated: this is now private and should not be used outside the scanner
-func (c *Config) ShouldIgnorePackage(pkg models.PackageVulns) (bool, PackageOverrideEntry) {
-	return c.filterPackageVersionEntries(pkg, func(e PackageOverrideEntry) bool {
-		return e.Ignore
-	})
-}
-
-// Deprecated: Use ShouldIgnorePackage instead
-func (c *Config) ShouldIgnorePackageVersion(name, version, ecosystem string) (bool, PackageOverrideEntry) {
-	return c.ShouldIgnorePackage(models.PackageVulns{
-		Package: models.PackageInfo{
-			Name:      name,
-			Version:   version,
-			Ecosystem: ecosystem,
-		},
-	})
-}
-
-// ShouldIgnorePackageVulnerabilities determines if the given package should have its vulnerabilities ignored based on override entries in the config
-//
-// Deprecated: this is now private and should not be used outside the scanner
-func (c *Config) ShouldIgnorePackageVulnerabilities(pkg models.PackageVulns) bool {
-	overrides, _ := c.filterPackageVersionEntries(pkg, func(e PackageOverrideEntry) bool {
-		return e.Vulnerability.Ignore
-	})
-
-	return overrides
-}
-
-// ShouldOverridePackageLicense determines if the given package should have its license ignored or changed based on override entries in the config
-//
-// Deprecated: this is now private and should not be used outside the scanner
-func (c *Config) ShouldOverridePackageLicense(pkg models.PackageVulns) (bool, PackageOverrideEntry) {
-	return c.filterPackageVersionEntries(pkg, func(e PackageOverrideEntry) bool {
-		return e.License.Ignore || len(e.License.Override) > 0
-	})
-}
-
-// Deprecated: Use ShouldOverridePackageLicense instead
-func (c *Config) ShouldOverridePackageVersionLicense(name, version, ecosystem string) (bool, PackageOverrideEntry) {
-	return c.ShouldOverridePackageLicense(models.PackageVulns{
-		Package: models.PackageInfo{
-			Name:      name,
-			Version:   version,
-			Ecosystem: ecosystem,
-		},
-	})
-}
-
-func shouldIgnoreTimestamp(ignoreUntil time.Time) bool {
-	if ignoreUntil.IsZero() {
+	if ignoredLine.IgnoreUntil.IsZero() {
 		// If IgnoreUntil is not set, should ignore.
-		return true
+		return true, ignoredLine
 	}
 	// Should ignore if IgnoreUntil is still after current time
 	// Takes timezone offsets into account if it is specified. otherwise it's using local time
-	return ignoreUntil.After(time.Now())
+	return ignoredLine.IgnoreUntil.After(time.Now()), ignoredLine
 }
 
 // Sets the override config by reading the config file at configPath.
 // Will return an error if loading the config file fails
-//
-// Deprecated: this is now private and should not be used outside the scanner
 func (c *ConfigManager) UseOverride(configPath string) error {
-	config, configErr := tryLoadConfig(configPath)
-	if configErr != nil {
-		return configErr
+	config := Config{}
+	_, err := toml.DecodeFile(configPath, &config)
+	if err != nil {
+		return err
 	}
+	config.LoadPath = configPath
 	c.OverrideConfig = &config
 
 	return nil
 }
 
 // Attempts to get the config
-//
-// Deprecated: this is now private and should not be used outside the scanner
 func (c *ConfigManager) Get(r reporter.Reporter, targetPath string) Config {
 	if c.OverrideConfig != nil {
 		return *c.OverrideConfig
@@ -214,11 +85,6 @@ func (c *ConfigManager) Get(r reporter.Reporter, targetPath string) Config {
 	if configErr == nil {
 		r.Infof("Loaded filter from: %s\n", config.LoadPath)
 	} else {
-		// anything other than the config file not existing is most likely due to an invalid config file
-		if !errors.Is(configErr, os.ErrNotExist) {
-			r.Errorf("Ignored invalid config file at: %s\n", configPath)
-			r.Verbosef("Config file %s is invalid because: %v\n", configPath, configErr)
-		}
 		// If config doesn't exist, use the default config
 		config = c.DefaultConfig
 	}
@@ -245,26 +111,22 @@ func normalizeConfigLoadPath(target string) (string, error) {
 	return configPath, nil
 }
 
-// tryLoadConfig attempts to parse the config file at the given path as TOML,
-// returning the Config object if successful or otherwise the error
+// tryLoadConfig tries to load config in `target` (or it's containing directory)
+// `target` will be the key for the entry in configMap
 func tryLoadConfig(configPath string) (Config, error) {
-	config := Config{}
-	m, err := toml.DecodeFile(configPath, &config)
-	if err == nil {
-		unknownKeys := m.Undecoded()
+	file, err := os.Open(configPath)
+	var config Config
+	if err == nil { // File exists, and we have permission to read
+		defer file.Close()
 
-		if len(unknownKeys) > 0 {
-			keys := make([]string, 0, len(unknownKeys))
-
-			for _, key := range unknownKeys {
-				keys = append(keys, key.String())
-			}
-
-			return Config{}, fmt.Errorf("unknown keys in config file: %s", strings.Join(keys, ", "))
+		_, err := toml.NewDecoder(file).Decode(&config)
+		if err != nil {
+			return Config{}, fmt.Errorf("failed to parse config file: %w", err)
 		}
-
 		config.LoadPath = configPath
+
+		return config, nil
 	}
 
-	return config, err
+	return Config{}, fmt.Errorf("no config file found on this path: %s", configPath)
 }

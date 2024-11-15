@@ -1,4 +1,3 @@
 **/fixtures/**
 **/fixtures-go/**
 /docs/vendor/**
-/internal/output/html/*template.html

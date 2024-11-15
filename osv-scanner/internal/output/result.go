@@ -2,45 +2,18 @@ package output
 
 import (
 	"encoding/json"
-	"log"
-	"os"
 	"slices"
-	"strings"
 
-	"github.com/google/osv-scanner/internal/identifiers"
 	"github.com/google/osv-scanner/pkg/models"
-	"golang.org/x/exp/maps"
 )
 
 type pkgWithSource struct {
-	Package models.PackageInfo `json:"Package"`
-	Source  models.SourceInfo  `json:"Source"`
+	Package models.PackageInfo
+	Source  models.SourceInfo
 }
 
 // Custom implementation of this unique set map to allow it to serialize to JSON
 type pkgSourceSet map[pkgWithSource]struct{}
-
-// StableKeys returns the pkgWithSource keys in a deterministic order
-func (pss *pkgSourceSet) StableKeys() []pkgWithSource {
-	pkgWithSrcKeys := maps.Keys(*pss)
-
-	slices.SortFunc(pkgWithSrcKeys, func(a, b pkgWithSource) int {
-		// compare based on each field in descending priority
-		for _, fn := range []func() int{
-			func() int { return strings.Compare(a.Source.Path, b.Source.Path) },
-			func() int { return strings.Compare(a.Package.Name, b.Package.Name) },
-			func() int { return strings.Compare(a.Package.Version, b.Package.Version) },
-		} {
-			if r := fn(); r != 0 {
-				return r
-			}
-		}
-
-		return 0
-	})
-
-	return pkgWithSrcKeys
-}
 
 func (pss *pkgSourceSet) MarshalJSON() ([]byte, error) {
 	res := []pkgWithSource{}
@@ -64,16 +37,6 @@ func (pss *pkgSourceSet) UnmarshalJSON(data []byte) error {
 	}
 
 	return nil
-}
-
-// mustGetWorkingDirectory panics if it can't get the working directory
-func mustGetWorkingDirectory() string {
-	dir, err := os.Getwd()
-	if err != nil {
-		log.Panicf("can't get working dir: %v", err)
-	}
-
-	return dir
 }
 
 // groupFixedVersions builds the fixed versions for each ID Group, with keys formatted like so:
@@ -160,7 +123,7 @@ func mapIDsToGroupedSARIFFinding(vulns *models.VulnerabilityResults) map[string]
 	}
 
 	for _, gs := range results {
-		slices.SortFunc(gs.AliasedIDList, identifiers.IDSortFunc)
+		slices.SortFunc(gs.AliasedIDList, idSortFunc)
 		gs.AliasedIDList = slices.Compact(gs.AliasedIDList)
 		gs.DisplayID = gs.AliasedIDList[0]
 	}

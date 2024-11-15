@@ -111,7 +111,6 @@ func init() {
 	registerExtractor("pubspec.lock", PubspecLockExtractor{})
 }
 
-// Deprecated: use PubspecLockExtractor.Extract instead
 func ParsePubspecLock(pathToLockfile string) ([]PackageDetails, error) {
 	return extractFromFile(pathToLockfile, PubspecLockExtractor{})
 }

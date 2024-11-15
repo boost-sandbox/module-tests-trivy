@@ -1,5 +1,3 @@
-version: 2
-
 before:
   hooks:
     - go mod tidy
@@ -137,13 +135,13 @@ docker_manifests:
 
 archives:
   - format: binary
-    name_template: "{{ .Binary }}_{{ .Os }}_{{ .Arch }}"
+    name_template: "{{ .Binary }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     builds:
       - osv-scanner
 checksum:
-  name_template: "{{ .ProjectName }}_SHA256SUMS"
+  name_template: "{{ .ProjectName }}_{{ .Version }}_SHA256SUMS"
   algorithm: sha256
 release:
   draft: true
 changelog:
-  disable: false
+  skip: false

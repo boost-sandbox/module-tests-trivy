@@ -6,9 +6,6 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-
-	"golang.org/x/exp/maps"
-	"golang.org/x/exp/slices"
 )
 
 type NpmLockDependency struct {
@@ -50,37 +47,28 @@ type NpmLockfile struct {
 
 const NpmEcosystem Ecosystem = "npm"
 
-type npmPackageDetailsMap map[string]PackageDetails
+func pkgDetailsMapToSlice(m map[string]PackageDetails) []PackageDetails {
+	details := make([]PackageDetails, 0, len(m))
 
-// mergeNpmDepsGroups handles merging the dependency groups of packages within the
-// NPM ecosystem, since they can appear multiple times in the same dependency tree
-//
-// the merge happens almost as you'd expect, except that if either given packages
-// belong to no groups, then that is the result since it indicates the package
-// is implicitly a production dependency.
-func mergeNpmDepsGroups(a, b PackageDetails) []string {
-	// if either group includes no groups, then the package is in the "production" group
-	if len(a.DepGroups) == 0 || len(b.DepGroups) == 0 {
-		return nil
+	for _, detail := range m {
+		details = append(details, detail)
 	}
 
-	combined := make([]string, 0, len(a.DepGroups)+len(b.DepGroups))
-	combined = append(combined, a.DepGroups...)
-	combined = append(combined, b.DepGroups...)
-
-	slices.Sort(combined)
-
-	return slices.Compact(combined)
+	return details
 }
 
-func (pdm npmPackageDetailsMap) add(key string, details PackageDetails) {
-	existing, ok := pdm[key]
+func mergePkgDetailsMap(m1 map[string]PackageDetails, m2 map[string]PackageDetails) map[string]PackageDetails {
+	details := map[string]PackageDetails{}
 
-	if ok {
-		details.DepGroups = mergeNpmDepsGroups(existing, details)
+	for name, detail := range m1 {
+		details[name] = detail
 	}
 
-	pdm[key] = details
+	for name, detail := range m2 {
+		details[name] = detail
+	}
+
+	return details
 }
 
 func (dep NpmLockDependency) depGroups() []string {
@@ -98,14 +86,11 @@ func (dep NpmLockDependency) depGroups() []string {
 }
 
 func parseNpmLockDependencies(dependencies map[string]NpmLockDependency) map[string]PackageDetails {
-	details := npmPackageDetailsMap{}
+	details := map[string]PackageDetails{}
 
 	for name, detail := range dependencies {
 		if detail.Dependencies != nil {
-			nestedDeps := parseNpmLockDependencies(detail.Dependencies)
-			for k, v := range nestedDeps {
-				details.add(k, v)
-			}
+			details = mergePkgDetailsMap(details, parseNpmLockDependencies(detail.Dependencies))
 		}
 
 		version := detail.Version
@@ -135,14 +120,14 @@ func parseNpmLockDependencies(dependencies map[string]NpmLockDependency) map[str
 			}
 		}
 
-		details.add(name+"@"+version, PackageDetails{
+		details[name+"@"+version] = PackageDetails{
 			Name:      name,
 			Version:   finalVersion,
 			Ecosystem: NpmEcosystem,
 			CompareAs: NpmEcosystem,
 			Commit:    commit,
 			DepGroups: detail.depGroups(),
-		})
+		}
 	}
 
 	return details
@@ -174,7 +159,7 @@ func (pkg NpmLockPackage) depGroups() []string {
 }
 
 func parseNpmLockPackages(packages map[string]NpmLockPackage) map[string]PackageDetails {
-	details := npmPackageDetailsMap{}
+	details := map[string]PackageDetails{}
 
 	for namePath, detail := range packages {
 		if namePath == "" {
@@ -196,14 +181,14 @@ func parseNpmLockPackages(packages map[string]NpmLockPackage) map[string]Package
 			finalVersion = commit
 		}
 
-		details.add(finalName+"@"+finalVersion, PackageDetails{
+		details[finalName+"@"+finalVersion] = PackageDetails{
 			Name:      finalName,
 			Version:   detail.Version,
 			Ecosystem: NpmEcosystem,
 			CompareAs: NpmEcosystem,
 			Commit:    commit,
 			DepGroups: detail.depGroups(),
-		})
+		}
 	}
 
 	return details
@@ -232,7 +217,7 @@ func (e NpmLockExtractor) Extract(f DepFile) ([]PackageDetails, error) {
 		return []PackageDetails{}, fmt.Errorf("could not extract from %s: %w", f.Path(), err)
 	}
 
-	return maps.Values(parseNpmLock(*parsedLockfile)), nil
+	return pkgDetailsMapToSlice(parseNpmLock(*parsedLockfile)), nil
 }
 
 var _ Extractor = NpmLockExtractor{}
@@ -242,7 +227,6 @@ func init() {
 	registerExtractor("package-lock.json", NpmLockExtractor{})
 }
 
-// Deprecated: use NpmLockExtractor.Extract instead
 func ParseNpmLock(pathToLockfile string) ([]PackageDetails, error) {
 	return extractFromFile(pathToLockfile, NpmLockExtractor{})
 }

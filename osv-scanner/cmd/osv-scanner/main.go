@@ -8,7 +8,6 @@ import (
 
 	"github.com/google/osv-scanner/cmd/osv-scanner/fix"
 	"github.com/google/osv-scanner/cmd/osv-scanner/scan"
-	"github.com/google/osv-scanner/cmd/osv-scanner/update"
 	"github.com/google/osv-scanner/internal/version"
 	"github.com/google/osv-scanner/pkg/osv"
 	"github.com/google/osv-scanner/pkg/osvscanner"
@@ -43,7 +42,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Commands: []*cli.Command{
 			scan.Command(stdout, stderr, &r),
 			fix.Command(stdout, stderr, &r),
-			update.Command(stdout, stderr, &r),
 		},
 	}
 
@@ -59,9 +57,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 		case errors.Is(err, osvscanner.NoPackagesFoundErr):
 			r.Errorf("No package sources found, --help for usage information.\n")
 			return 128
-		case errors.Is(err, osvscanner.ErrAPIFailed):
-			r.Errorf("%v\n", err)
-			return 129
 		}
 		r.Errorf("%v\n", err)
 	}
@@ -123,7 +118,5 @@ func insertDefaultCommand(args []string, commands []*cli.Command, defaultCommand
 }
 
 func main() {
-	exitCode := run(os.Args, os.Stdout, os.Stderr)
-
-	os.Exit(exitCode)
+	os.Exit(run(os.Args, os.Stdout, os.Stderr))
 }

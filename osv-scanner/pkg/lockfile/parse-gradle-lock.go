@@ -82,7 +82,6 @@ func init() {
 	registerExtractor("gradle.lockfile", GradleLockExtractor{})
 }
 
-// Deprecated: use GradleLockExtractor.Extract instead
 func ParseGradleLock(pathToLockfile string) ([]PackageDetails, error) {
 	return extractFromFile(pathToLockfile, GradleLockExtractor{})
 }

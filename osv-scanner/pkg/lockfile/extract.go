@@ -11,7 +11,7 @@ var lockfileExtractors = map[string]Extractor{}
 
 func registerExtractor(name string, extractor Extractor) {
 	if _, ok := lockfileExtractors[name]; ok {
-		panic("an extractor is already registered as " + name)
+		panic(fmt.Sprintf("an extractor is already registered as %s", name))
 	}
 
 	lockfileExtractors[name] = extractor

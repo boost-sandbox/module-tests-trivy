@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"golang.org/x/exp/maps"
 )
 
 func FindParser(pathToLockfile string, parseAs string) (PackageDetailsParser, string) {
@@ -26,7 +24,6 @@ var parsers = map[string]PackageDetailsParser{
 	"conan.lock":                  ParseConanLock,
 	"Gemfile.lock":                ParseGemfileLock,
 	"go.mod":                      ParseGoLock,
-	"verification-metadata.xml":   ParseGradleVerificationMetadata,
 	"gradle.lockfile":             ParseGradleLock,
 	"mix.lock":                    ParseMixLock,
 	"Pipfile.lock":                ParsePipenvLock,
@@ -60,6 +57,20 @@ var ErrParserNotFound = errors.New("could not determine parser")
 
 type Packages []PackageDetails
 
+func toSliceOfEcosystems(ecosystemsMap map[Ecosystem]struct{}) []Ecosystem {
+	ecosystems := make([]Ecosystem, 0, len(ecosystemsMap))
+
+	for ecosystem := range ecosystemsMap {
+		if ecosystem == "" {
+			continue
+		}
+
+		ecosystems = append(ecosystems, ecosystem)
+	}
+
+	return ecosystems
+}
+
 func (ps Packages) Ecosystems() []Ecosystem {
 	ecosystems := make(map[Ecosystem]struct{})
 
@@ -67,7 +78,7 @@ func (ps Packages) Ecosystems() []Ecosystem {
 		ecosystems[pkg.Ecosystem] = struct{}{}
 	}
 
-	slicedEcosystems := maps.Keys(ecosystems)
+	slicedEcosystems := toSliceOfEcosystems(ecosystems)
 
 	sort.Slice(slicedEcosystems, func(i, j int) bool {
 		return slicedEcosystems[i] < slicedEcosystems[j]

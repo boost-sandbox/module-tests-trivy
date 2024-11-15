@@ -44,6 +44,7 @@ func (vt *mavenVersionToken) equal(wt mavenVersionToken) bool {
 	return vt.prefix == wt.prefix && vt.value == wt.value
 }
 
+//nolint:gochecknoglobals // this is read-only and the nicest implementation
 var keywordOrder = []string{"alpha", "beta", "milestone", "rc", "snapshot", "", "sp"}
 
 func findKeywordOrder(keyword string) int {
@@ -107,7 +108,7 @@ func (mv MavenVersion) equal(mw MavenVersion) bool {
 		return false
 	}
 
-	for i := range len(mv.tokens) {
+	for i := 0; i < len(mv.tokens); i++ {
 		if !mv.tokens[i].equal(mw.tokens[i]) {
 			return false
 		}
@@ -136,12 +137,12 @@ func newMavenNullVersionToken(token mavenVersionToken) mavenVersionToken {
 }
 
 func (mv MavenVersion) lessThan(mw MavenVersion) bool {
-	numberOfTokens := max(len(mv.tokens), len(mw.tokens))
+	max := maxInt(len(mv.tokens), len(mw.tokens))
 
 	var left mavenVersionToken
 	var right mavenVersionToken
 
-	for i := range numberOfTokens {
+	for i := 0; i < max; i++ {
 		// the shorter one padded with enough "null" values with matching prefix to
 		// have the same length as the longer one. Padded "null" values depend on
 		// the prefix of the other version: 0 for '.', "" for '-'

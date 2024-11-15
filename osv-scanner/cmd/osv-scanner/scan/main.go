@@ -8,22 +8,13 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/google/osv-scanner/internal/spdx"
 	"github.com/google/osv-scanner/pkg/osvscanner"
 	"github.com/google/osv-scanner/pkg/reporter"
+	"github.com/google/osv-scanner/pkg/spdx"
 	"golang.org/x/term"
 
 	"github.com/urfave/cli/v2"
 )
-
-// flags that require network access and values to disable them.
-var offlineFlags = map[string]string{
-	"skip-git":                             "true",
-	"experimental-offline-vulnerabilities": "true",
-	"experimental-no-resolve":              "true",
-	"experimental-licenses-summary":        "false",
-	// "experimental-licenses": "", // StringSliceFlag has to be manually cleared.
-}
 
 func Command(stdout, stderr io.Writer, r *reporter.Reporter) *cli.Command {
 	return &cli.Command{
@@ -34,7 +25,7 @@ func Command(stdout, stderr io.Writer, r *reporter.Reporter) *cli.Command {
 			&cli.StringSliceFlag{
 				Name:      "docker",
 				Aliases:   []string{"D"},
-				Usage:     "scan docker image with this name. Warning: Only run this on a trusted container image, as it runs the container image to retrieve the package versions",
+				Usage:     "scan docker image with this name",
 				TakesFile: false,
 			},
 			&cli.StringSliceFlag{
@@ -57,16 +48,10 @@ func Command(stdout, stderr io.Writer, r *reporter.Reporter) *cli.Command {
 			&cli.StringFlag{
 				Name:    "format",
 				Aliases: []string{"f"},
-				Usage:   "sets the output format; value can be: " + strings.Join(reporter.Format(), ", "),
+				Usage:   fmt.Sprintf("sets the output format; value can be: %s", strings.Join(reporter.Format(), ", ")),
 				Value:   "table",
-				Action: func(_ *cli.Context, s string) error {
+				Action: func(context *cli.Context, s string) error {
 					if slices.Contains(reporter.Format(), s) {
-						return nil
-					}
-
-					// Supporting html output format without showing it in the help command.
-					// TODO(gongh@): add html to reporter.Format()
-					if s == "html" {
 						return nil
 					}
 
@@ -113,34 +98,16 @@ func Command(stdout, stderr io.Writer, r *reporter.Reporter) *cli.Command {
 			},
 			&cli.StringFlag{
 				Name:  "verbosity",
-				Usage: "specify the level of information that should be provided during runtime; value can be: " + strings.Join(reporter.VerbosityLevels(), ", "),
+				Usage: fmt.Sprintf("specify the level of information that should be provided during runtime; value can be: %s", strings.Join(reporter.VerbosityLevels(), ", ")),
 				Value: "info",
 			},
 			&cli.BoolFlag{
+				Name:  "experimental-local-db",
+				Usage: "checks for vulnerabilities using local databases",
+			},
+			&cli.BoolFlag{
 				Name:  "experimental-offline",
-				Usage: "run in offline mode, disabling any features requiring network access",
-				Action: func(ctx *cli.Context, b bool) error {
-					if !b {
-						return nil
-					}
-					// Disable the features requiring network access.
-					for flag, value := range offlineFlags {
-						// TODO(michaelkedar): do something if the flag was already explicitly set.
-						if err := ctx.Set(flag, value); err != nil {
-							panic(fmt.Sprintf("failed setting offline flag %s to %s: %v", flag, value, err))
-						}
-					}
-
-					return nil
-				},
-			},
-			&cli.BoolFlag{
-				Name:  "experimental-offline-vulnerabilities",
 				Usage: "checks for vulnerabilities using local databases that are already cached",
-			},
-			&cli.BoolFlag{
-				Name:  "experimental-download-offline-databases",
-				Usage: "downloads vulnerability databases for offline comparison",
 			},
 			&cli.StringFlag{
 				Name:   "experimental-local-db-path",
@@ -161,29 +128,8 @@ func Command(stdout, stderr io.Writer, r *reporter.Reporter) *cli.Command {
 			},
 			&cli.StringFlag{
 				Name:      "experimental-oci-image",
-				Usage:     "scan an exported *docker* container image archive (exported using `docker save` command) file",
+				Usage:     "scan an exported OCI compatible container image .tar file",
 				TakesFile: true,
-				Hidden:    true,
-			},
-			&cli.BoolFlag{
-				Name:  "experimental-no-resolve",
-				Usage: "disable transitive dependency resolution of manifest files",
-			},
-			&cli.StringFlag{
-				Name:  "experimental-resolution-data-source",
-				Usage: "source to fetch package information from; value can be: deps.dev, native",
-				Value: "deps.dev",
-				Action: func(_ *cli.Context, s string) error {
-					if s != "deps.dev" && s != "native" {
-						return fmt.Errorf("unsupported data-source \"%s\" - must be one of: deps.dev, native", s)
-					}
-
-					return nil
-				},
-			},
-			&cli.StringFlag{
-				Name:  "experimental-maven-registry",
-				Usage: "URL of the default registry to fetch Maven metadata",
 			},
 		},
 		ArgsUsage: "[directory1 directory2...]",
@@ -222,13 +168,13 @@ func action(context *cli.Context, stdout, stderr io.Writer) (reporter.Reporter, 
 	}
 
 	if context.Bool("experimental-licenses-summary") && context.IsSet("experimental-licenses") {
-		return nil, errors.New("--experimental-licenses-summary and --experimental-licenses flags cannot be set")
+		return nil, fmt.Errorf("--experimental-licenses-summary and --experimental-licenses flags cannot be set")
 	}
 	allowlist := context.StringSlice("experimental-licenses")
 	if context.IsSet("experimental-licenses") {
 		if len(allowlist) == 0 ||
 			(len(allowlist) == 1 && allowlist[0] == "") {
-			return nil, errors.New("--experimental-licenses requires at least one value")
+			return nil, fmt.Errorf("--experimental-licenses requires at least one value")
 		}
 		if unrecognized := spdx.Unrecognized(allowlist); len(unrecognized) > 0 {
 			return nil, fmt.Errorf("--experimental-licenses requires comma-separated spdx licenses. The following license(s) are not recognized as spdx: %s", strings.Join(unrecognized, ","))
@@ -252,11 +198,6 @@ func action(context *cli.Context, stdout, stderr io.Writer) (reporter.Reporter, 
 		callAnalysisStates = createCallAnalysisStates(context.StringSlice("call-analysis"), context.StringSlice("no-call-analysis"))
 	}
 
-	scanLicensesAllowlist := context.StringSlice("experimental-licenses")
-	if context.Bool("experimental-offline") {
-		scanLicensesAllowlist = []string{}
-	}
-
 	vulnResult, err := osvscanner.DoScan(osvscanner.ScannerActions{
 		LockfilePaths:        context.StringSlice("lockfile"),
 		SBOMPaths:            context.StringSlice("sbom"),
@@ -268,9 +209,9 @@ func action(context *cli.Context, stdout, stderr io.Writer) (reporter.Reporter, 
 		DirectoryPaths:       context.Args().Slice(),
 		CallAnalysisStates:   callAnalysisStates,
 		ExperimentalScannerActions: osvscanner.ExperimentalScannerActions{
-			LocalDBPath:       context.String("experimental-local-db-path"),
-			DownloadDatabases: context.Bool("experimental-download-offline-databases"),
-			CompareOffline:    context.Bool("experimental-offline-vulnerabilities"),
+			LocalDBPath:    context.String("experimental-local-db-path"),
+			CompareLocally: context.Bool("experimental-local-db"),
+			CompareOffline: context.Bool("experimental-offline"),
 			// License summary mode causes all
 			// packages to appear in the json as
 			// every package has a license - even
@@ -278,13 +219,8 @@ func action(context *cli.Context, stdout, stderr io.Writer) (reporter.Reporter, 
 			ShowAllPackages: context.Bool("experimental-all-packages") ||
 				context.Bool("experimental-licenses-summary"),
 			ScanLicensesSummary:   context.Bool("experimental-licenses-summary"),
-			ScanLicensesAllowlist: scanLicensesAllowlist,
+			ScanLicensesAllowlist: context.StringSlice("experimental-licenses"),
 			ScanOCIImage:          context.String("experimental-oci-image"),
-			TransitiveScanningActions: osvscanner.TransitiveScanningActions{
-				Disabled:         context.Bool("experimental-no-resolve"),
-				NativeDataSource: context.String("experimental-resolution-data-source") == "native",
-				MavenRegistry:    context.String("experimental-maven-registry"),
-			},
 		},
 	}, r)
 

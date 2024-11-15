@@ -19,8 +19,7 @@ type relockInfo struct {
 	addedFocused bool
 }
 
-//revive:disable-next-line:unexported-return
-func NewRelockInfo(change resolution.Difference) *relockInfo {
+func NewRelockInfo(change resolution.ResolutionDiff) *relockInfo {
 	info := relockInfo{fixedHeight: 1}
 	preamble := strings.Builder{}
 	preamble.WriteString("The following upgrades:\n")
@@ -29,7 +28,7 @@ func NewRelockInfo(change resolution.Difference) *relockInfo {
 			dep.Pkg.Name, dep.OrigRequire, dep.OrigResolved, dep.NewRequire, dep.NewResolved))
 	}
 	preamble.WriteString("Will resolve the following:")
-	fixedVulns := make([]*resolution.Vulnerability, len(change.RemovedVulns))
+	fixedVulns := make([]*resolution.ResolutionVuln, len(change.RemovedVulns))
 	for i := range change.RemovedVulns {
 		fixedVulns[i] = &change.RemovedVulns[i]
 	}
@@ -40,7 +39,7 @@ func NewRelockInfo(change resolution.Difference) *relockInfo {
 	}
 
 	// Create a second list showing introduced vulns
-	newVulns := make([]*resolution.Vulnerability, len(change.AddedVulns))
+	newVulns := make([]*resolution.ResolutionVuln, len(change.AddedVulns))
 	for i := range change.AddedVulns {
 		newVulns[i] = &change.AddedVulns[i]
 	}

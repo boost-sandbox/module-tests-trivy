@@ -12,7 +12,6 @@ import (
 	"github.com/google/osv-scanner/internal/resolution/datasource"
 	"github.com/google/osv-scanner/pkg/lockfile"
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/pretty"
 	"github.com/tidwall/sjson"
 	"golang.org/x/exp/maps"
 )
@@ -22,7 +21,7 @@ import (
 // Installed packages are in the flat "packages" object, keyed by the install path
 // e.g. "node_modules/foo/node_modules/bar"
 // packages contain most information from their own manifests.
-func (rw NpmReadWriter) nodesFromPackages(lockJSON lockfile.NpmLockfile) (*resolve.Graph, *npmNodeModule, error) {
+func (rw NpmLockfileIO) nodesFromPackages(lockJSON lockfile.NpmLockfile) (*resolve.Graph, *npmNodeModule, error) {
 	var g resolve.Graph
 	// Create graph nodes and reconstruct the node_modules folder structure in memory
 	root, ok := lockJSON.Packages[""]
@@ -132,7 +131,7 @@ func (rw NpmReadWriter) nodesFromPackages(lockJSON lockfile.NpmLockfile) (*resol
 	return &g, nodeModuleTree, nil
 }
 
-func (rw NpmReadWriter) makeNodeModuleDeps(pkg lockfile.NpmLockPackage, includeDev bool) *npmNodeModule {
+func (rw NpmLockfileIO) makeNodeModuleDeps(pkg lockfile.NpmLockPackage, includeDev bool) *npmNodeModule {
 	nm := npmNodeModule{
 		Children:     make(map[string]*npmNodeModule),
 		Deps:         make(map[string]string),
@@ -155,7 +154,7 @@ func (rw NpmReadWriter) makeNodeModuleDeps(pkg lockfile.NpmLockPackage, includeD
 	return &nm
 }
 
-func (rw NpmReadWriter) packageNamesByNodeModuleDepth(packages map[string]lockfile.NpmLockPackage) []string {
+func (rw NpmLockfileIO) packageNamesByNodeModuleDepth(packages map[string]lockfile.NpmLockPackage) []string {
 	keys := maps.Keys(packages)
 	slices.SortFunc(keys, func(a, b string) int {
 		aSplit := strings.Split(a, "node_modules/")
@@ -170,7 +169,7 @@ func (rw NpmReadWriter) packageNamesByNodeModuleDepth(packages map[string]lockfi
 	return keys
 }
 
-func (rw NpmReadWriter) modifyPackageLockPackages(lockJSON string, patches map[string]map[string]string, api *datasource.NpmRegistryAPIClient) (string, error) {
+func (rw NpmLockfileIO) modifyPackageLockPackages(lockJSON string, patches map[string]map[string]string, api *datasource.NpmRegistryAPIClient) (string, error) {
 	packages := gjson.Get(lockJSON, "packages")
 	if !packages.Exists() {
 		return lockJSON, nil
@@ -187,7 +186,7 @@ func (rw NpmReadWriter) modifyPackageLockPackages(lockJSON string, patches map[s
 		}
 		if upgrades, ok := patches[pkg]; ok {
 			if newVer, ok := upgrades[value.Get("version").String()]; ok {
-				fullPath := "packages." + gjson.Escape(key)
+				fullPath := "packages." + strings.ReplaceAll(key, ".", "\\.")
 				var err error
 				if lockJSON, err = rw.updatePackage(lockJSON, fullPath, pkg, newVer, api); err != nil {
 					return lockJSON, err
@@ -199,7 +198,7 @@ func (rw NpmReadWriter) modifyPackageLockPackages(lockJSON string, patches map[s
 	return lockJSON, nil
 }
 
-func (rw NpmReadWriter) updatePackage(jsonText, jsonPath, packageName, newVersion string, api *datasource.NpmRegistryAPIClient) (string, error) {
+func (rw NpmLockfileIO) updatePackage(jsonText, jsonPath, packageName, newVersion string, api *datasource.NpmRegistryAPIClient) (string, error) {
 	npmData, err := api.FullJSON(context.Background(), packageName, newVersion)
 	if err != nil {
 		return "", err
@@ -208,18 +207,9 @@ func (rw NpmReadWriter) updatePackage(jsonText, jsonPath, packageName, newVersio
 	// The "dependencies" returned from the registry includes (can include?) both optional and regular dependencies
 	// But the "optionalDependencies" are (always?) removed from "dependencies" package-lock.json.
 	for _, opt := range npmData.Get("optionalDependencies|@keys").Array() {
-		depName := gjson.Escape(opt.String())
-		s, _ := sjson.Delete(npmData.Raw, "dependencies."+depName)
+		s, _ := sjson.Delete(npmData.Raw, "dependencies."+opt.String())
 		npmData = gjson.Parse(s)
 	}
-
-	if len(npmData.Get("dependencies").Map()) == 0 {
-		s, _ := sjson.Delete(npmData.Raw, "dependencies")
-		npmData = gjson.Parse(s)
-	}
-
-	pkgData := gjson.Get(jsonText, jsonPath)
-	pkgText := pkgData.Raw
 
 	// I can't find a consistent list of what fields should be included in package-lock.json packages
 	// https://docs.npmjs.com/cli/v9/configuring-npm/package-lock-json#packages seems list some
@@ -227,38 +217,27 @@ func (rw NpmReadWriter) updatePackage(jsonText, jsonPath, packageName, newVersio
 	// Might fill in as much of package.json? https://docs.npmjs.com/cli/v9/configuring-npm/package-json
 	// It also seems to depend on npm version?
 	// Instead, just modify the fields that are present
-	keyArray := pkgData.Get("@keys").Array()
-	// If dependency types were not previously present, we want to add them.
-	necessaryKeys := []string{"dependencies", "optionalDependencies", "peerDependencies"}
-
-	keys := make([]string, len(keyArray), len(keyArray)+len(necessaryKeys))
-	for i, key := range keyArray {
-		keys[i] = gjson.Escape(key.String())
-	}
-	for _, key := range necessaryKeys {
-		if npmData.Get(key).Exists() && !pkgData.Get(key).Exists() {
-			keys = append(keys, key)
-		}
-	}
-	for _, key := range keys {
-		switch key {
+	for _, key := range gjson.Get(jsonText, jsonPath+"|@keys").Array() {
+		switch key.String() {
 		case "resolved":
-			pkgText, _ = sjson.Set(pkgText, "resolved", npmData.Get("dist.tarball").String())
+			jsonText, _ = sjson.Set(jsonText, jsonPath+".resolved", npmData.Get("dist.tarball").String())
 		case "integrity":
-			pkgText, _ = sjson.Set(pkgText, "integrity", npmData.Get("dist.integrity").String())
+			jsonText, _ = sjson.Set(jsonText, jsonPath+".integrity", npmData.Get("dist.integrity").String())
 		case "bin":
 			// the api formats the paths as "./path/to", while package-lock.json seem to use "path/to"
 			// TODO: smarter way for indentation
-			newVal := npmData.Get(key)
+			newVal := npmData.Get(key.String() + "|@pretty:{\"prefix\": \"      \"}")
 			if newVal.Exists() {
 				text := newVal.Raw
+				// remove trailing newlines that @pretty creates for objects
+				text = strings.TrimSuffix(text, "\n")
 				for k, v := range newVal.Map() {
 					text, _ = sjson.Set(text, k, filepath.Clean(v.String()))
 				}
-				pkgText, _ = sjson.SetRaw(pkgText, "bin", text)
+				jsonText, _ = sjson.SetRaw(jsonText, jsonPath+".bin", text)
 			} else {
 				// explicitly remove it if it's no longer present
-				pkgText, _ = sjson.Delete(pkgText, "bin")
+				jsonText, _ = sjson.Delete(jsonText, jsonPath+".bin")
 			}
 		// if all dependencies have been removed, explicitly remove the field
 		case "dependencies":
@@ -268,27 +247,27 @@ func (rw NpmReadWriter) updatePackage(jsonText, jsonPath, packageName, newVersio
 		case "peerDependencies":
 			fallthrough
 		case "optionalDependencies":
-			if !npmData.Get(key).Exists() {
+			if !npmData.Get(key.String()).Exists() {
 				// TODO: Think of the orphaned children
-				pkgText, _ = sjson.Delete(pkgText, key)
+				jsonText, _ = sjson.Delete(jsonText, jsonPath+"."+key.String())
 				continue
 			}
 
 			fallthrough
 		default:
-			newVal := npmData.Get(key)
+			// use @pretty to format objects correctly & with correct indentation
+			// TODO: smarter way for indentation
+			newVal := npmData.Get(key.String() + "|@pretty:{\"prefix\": \"      \"}")
 			if newVal.Exists() {
-				pkgText, _ = sjson.SetRaw(pkgText, key, newVal.Raw)
+				text := newVal.Raw
+				// remove trailing newlines that @pretty creates for objects
+				text = strings.TrimSuffix(text, "\n")
+				jsonText, _ = sjson.SetRaw(jsonText, jsonPath+"."+key.String(), text)
 			}
 			// if it doesn't exist, assume it's one of the package-lock flags e.g. "dev"
 			// TODO: It could be a removed field
 		}
 	}
 
-	// pretty the json because setting nested objects breaks the formatting.
-	// Setting Prefix & Indent to account for the fact that this is not the top-level object.
-	pkgText = string(pretty.PrettyOptions([]byte(pkgText), &pretty.Options{Prefix: "    ", Indent: "  "}))
-	pkgText = strings.TrimSpace(pkgText) // remove leading spaces & newline pretty creates
-
-	return sjson.SetRaw(jsonText, jsonPath, pkgText)
+	return jsonText, nil
 }

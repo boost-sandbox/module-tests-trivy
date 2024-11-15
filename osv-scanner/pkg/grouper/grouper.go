@@ -1,4 +1,3 @@
-// Deprecated: this is now private and should not be used outside the scanner
 package grouper
 
 import (
@@ -7,9 +6,16 @@ import (
 
 	"golang.org/x/exp/maps"
 
-	"github.com/google/osv-scanner/internal/identifiers"
 	"github.com/google/osv-scanner/pkg/models"
 )
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+
+	return b
+}
 
 func hasAliasIntersection(v1, v2 IDAliases) bool {
 	// Check if any aliases intersect.
@@ -23,19 +29,17 @@ func hasAliasIntersection(v1, v2 IDAliases) bool {
 }
 
 // Group groups vulnerabilities by aliases.
-//
-// Deprecated: this is now private and should not be used outside the scanner
 func Group(vulns []IDAliases) []models.GroupInfo {
 	// Mapping of `vulns` index to a group ID. A group ID is just another index in the `vulns` slice.
 	groups := make([]int, len(vulns))
 
 	// Initially make every vulnerability its own group.
-	for i := range vulns {
+	for i := 0; i < len(vulns); i++ {
 		groups[i] = i
 	}
 
 	// Do a pair-wise (n^2) comparison and merge all intersecting vulns.
-	for i := range vulns {
+	for i := 0; i < len(vulns); i++ {
 		for j := i + 1; j < len(vulns); j++ {
 			if hasAliasIntersection(vulns[i], vulns[j]) {
 				// Merge the two groups. Use the smaller index as the representative ID.
@@ -60,7 +64,7 @@ func Group(vulns []IDAliases) []models.GroupInfo {
 	result := make([]models.GroupInfo, 0, len(sortedKeys))
 	for _, key := range sortedKeys {
 		// Sort the strings so they are always in the same order
-		slices.SortFunc(extractedGroups[key], identifiers.IDSortFunc)
+		sort.Strings(extractedGroups[key])
 
 		// Add IDs to aliases
 		extractedAliases[key] = append(extractedAliases[key], extractedGroups[key]...)

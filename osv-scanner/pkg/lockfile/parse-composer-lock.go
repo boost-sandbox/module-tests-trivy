@@ -74,7 +74,6 @@ func init() {
 	registerExtractor("composer.lock", ComposerLockExtractor{})
 }
 
-// Deprecated: use ComposerLockExtractor.Extract instead
 func ParseComposerLock(pathToLockfile string) ([]PackageDetails, error) {
 	return extractFromFile(pathToLockfile, ComposerLockExtractor{})
 }

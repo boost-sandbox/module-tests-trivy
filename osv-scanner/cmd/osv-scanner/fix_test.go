@@ -30,7 +30,7 @@ func matchFile(t *testing.T, file string) {
 	if err != nil {
 		t.Fatalf("could not read test file: %v", err)
 	}
-	testutility.NewSnapshot().WithCRLFReplacement().MatchText(t, string(b))
+	testutility.NewSnapshot().WithWindowsReplacements(map[string]string{"\r\n": "\n"}).MatchText(t, string(b))
 }
 
 func TestRun_Fix(t *testing.T) {
@@ -54,15 +54,10 @@ func TestRun_Fix(t *testing.T) {
 			exit:     0,
 			manifest: "./fix/fixtures/relock-npm/package.json",
 		},
-		{
-			name:     "fix non-interactive override pom.xml",
-			args:     []string{"", "fix", "--non-interactive", "--strategy=override"},
-			exit:     0,
-			manifest: "./fix/fixtures/override-maven/pom.xml",
-		},
 		// TODO: add tests with the cli flags
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -73,7 +68,8 @@ func TestRun_Fix(t *testing.T) {
 			}
 
 			// fix action overwrites files, copy them to a temporary directory
-			testDir := testutility.CreateTestDir(t)
+			testDir, cleanupTestDir := createTestDir(t)
+			defer cleanupTestDir()
 
 			var lockfile, manifest string
 			if tt.lockfile != "" {
@@ -85,11 +81,7 @@ func TestRun_Fix(t *testing.T) {
 				tc.args = append(tc.args, "-M", manifest)
 			}
 
-			stdout, stderr := runCli(t, tc)
-
-			testutility.NewSnapshot().MatchText(t, stdout)
-			testutility.NewSnapshot().MatchText(t, stderr)
-
+			testCli(t, tc)
 			if lockfile != "" {
 				matchFile(t, lockfile)
 			}

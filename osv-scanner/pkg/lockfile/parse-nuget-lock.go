@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-
-	"golang.org/x/exp/maps"
 )
 
 type NuGetLockPackage struct {
@@ -43,12 +41,10 @@ func parseNuGetLock(lockfile NuGetLockfile) ([]PackageDetails, error) {
 	// its dependencies, there might be different or duplicate dependencies
 	// between frameworks
 	for _, dependencies := range lockfile.Dependencies {
-		for name, detail := range parseNuGetLockDependencies(dependencies) {
-			details[name] = detail
-		}
+		details = mergePkgDetailsMap(details, parseNuGetLockDependencies(dependencies))
 	}
 
-	return maps.Values(details), nil
+	return pkgDetailsMapToSlice(details), nil
 }
 
 type NuGetLockExtractor struct{}
@@ -80,7 +76,6 @@ func init() {
 	registerExtractor("packages.lock.json", NuGetLockExtractor{})
 }
 
-// Deprecated: use NuGetLockExtractor.Extract instead
 func ParseNuGetLock(pathToLockfile string) ([]PackageDetails, error) {
 	return extractFromFile(pathToLockfile, NuGetLockExtractor{})
 }

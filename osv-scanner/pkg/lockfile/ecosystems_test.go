@@ -36,9 +36,9 @@ func TestKnownEcosystems(t *testing.T) {
 
 	// - npm, yarn, and pnpm,
 	// - pip, poetry, pdm and pipenv,
-	// - maven, gradle, and gradle/verification-metadata
+	// - maven and gradle,
 	// all use the same ecosystem so "ignore" those parsers in the count
-	expectedCount -= 7
+	expectedCount -= 6
 
 	ecosystems := lockfile.KnownEcosystems()
 

@@ -6,6 +6,3 @@
 /coverage.out
 /coverage.html
 *.tar
-*.pprof
-.go-version
-node_modules

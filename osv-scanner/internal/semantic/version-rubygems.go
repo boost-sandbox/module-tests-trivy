@@ -1,6 +1,7 @@
 package semantic
 
 import (
+	"strconv"
 	"strings"
 )
 
@@ -62,7 +63,7 @@ func removeZeros(segs []string) []string {
 		i--
 	}
 
-	return segs[:max(i, 0)]
+	return segs[:maxInt(i, 0)]
 }
 
 func canonicalSegments(segs []string) (canSegs []string) {
@@ -72,9 +73,11 @@ func canonicalSegments(segs []string) (canSegs []string) {
 }
 
 func compareRubyGemsComponents(a, b []string) int {
-	numberOfComponents := max(len(a), len(b))
+	max := maxInt(len(a), len(b))
 
-	for i := range numberOfComponents {
+	var compare int
+
+	for i := 0; i < max; i++ {
 		as := fetch(a, i, "0")
 		bs := fetch(b, i, "0")
 
@@ -83,18 +86,42 @@ func compareRubyGemsComponents(a, b []string) int {
 
 		switch {
 		case aIsNumber && bIsNumber:
-			if diff := ai.Cmp(bi); diff != 0 {
-				return diff
-			}
+			compare = ai.Cmp(bi)
 		case !aIsNumber && !bIsNumber:
-			if diff := strings.Compare(as, bs); diff != 0 {
-				return diff
-			}
+			compare = strings.Compare(as, bs)
 		case aIsNumber:
-			return +1
+			compare = +1
 		default:
+			compare = -1
+		}
+
+		if compare != 0 {
+			if compare > 0 {
+				return 1
+			}
+
 			return -1
 		}
+	}
+
+	if len(a) > len(b) {
+		next := a[len(b)]
+
+		if _, err := strconv.Atoi(next); err == nil {
+			return 1
+		}
+
+		return -1
+	}
+
+	if len(a) < len(b) {
+		next := b[len(a)]
+
+		if _, err := strconv.Atoi(next); err == nil {
+			return -1
+		}
+
+		return +1
 	}
 
 	return 0

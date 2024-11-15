@@ -5,8 +5,6 @@ repos=(
   "osv-scanner git@github.com:google/osv-scanner.git main"
   "rclone git@github.com:rclone/rclone.git v1.65.2"
   "kubeaudit git@github.com:/Shopify/kubeaudit v0.18.0"
-  "jenkins git@github.com:jenkinsci/jenkins.git master"
-  "dspace git@github.com:DSpace/DSpace.git main"
 )
 
 for repo in "${repos[@]}"; do

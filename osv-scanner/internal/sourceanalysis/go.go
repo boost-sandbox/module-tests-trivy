@@ -35,16 +35,7 @@ func goAnalysis(r reporter.Reporter, pkgs []models.PackageVulns, source models.S
 	}
 
 	vulns, vulnsByID := vulnsFromAllPkgs(pkgs)
-	// Filter out advisories with no symbol information first
-	// This is purely an optimisation step, further filtering is done in matchAnalysisWithPackageVulns function
-	filteredVulns := models.Vulnerabilities{}
-	for _, vuln := range vulns {
-		if vulnHasImportsField(vuln, nil) {
-			filteredVulns = append(filteredVulns, vuln)
-		}
-	}
-
-	res, err := runGovulncheck(filepath.Dir(source.Path), filteredVulns, goVersion)
+	res, err := runGovulncheck(filepath.Dir(source.Path), vulns, goVersion)
 	if err != nil {
 		// TODO: Better method to identify the type of error and give advice specific to the error
 		r.Errorf(
@@ -82,13 +73,7 @@ func matchAnalysisWithPackageVulns(pkgs []models.PackageVulns, idToFindings map[
 					fillNotImportedAnalysisInfo(vulnsByID, vulnID, pv, analysis)
 					continue
 				}
-
-				pkg := pv.Package
-				if !vulnHasImportsField(vulnsByID[vulnID], &pkg) && moduleToCalled[pv.Package.Name] {
-					// Vuln entry does not have any symbol information, therefore called being true is not useful
-					continue
-				}
-
+				// TODO: There feels like something's wrong here, not sure what
 				(*analysis)[vulnID] = models.AnalysisInfo{
 					Called: moduleToCalled[pv.Package.Name],
 				}
@@ -97,37 +82,27 @@ func matchAnalysisWithPackageVulns(pkgs []models.PackageVulns, idToFindings map[
 	}
 }
 
-func vulnHasImportsField(vuln models.Vulnerability, pkg *models.PackageInfo) bool {
-	for _, affected := range vuln.Affected {
-		if pkg != nil {
-			// TODO: Compare versions to see if this is the correct affected element
-			// ver, err := semantic.Parse(pv.Package.Version, semantic.SemverVersion)
-			if affected.Package.Name != pkg.Name {
-				continue
-			}
-		}
-		_, hasImportsField := affected.EcosystemSpecific["imports"]
-		if hasImportsField {
-			return true
-		}
-	}
-
-	return false
-}
-
 // fillNotImportedAnalysisInfo checks for any source information in advisories, and sets called to false
 func fillNotImportedAnalysisInfo(vulnsByID map[string]models.Vulnerability, vulnID string, pv models.PackageVulns, analysis *map[string]models.AnalysisInfo) {
-	if vulnHasImportsField(vulnsByID[vulnID], &pv.Package) {
-		// If there is source information, then analysis has been performed, and
-		// code does not import the vulnerable package, so definitely not called
-		(*analysis)[vulnID] = models.AnalysisInfo{
-			Called: false,
+	for _, v := range vulnsByID[vulnID].Affected {
+		// TODO: Compare versions to see if this is the correct affected element
+		// ver, err := semantic.Parse(pv.Package.Version, semantic.SemverVersion)
+		if v.Package.Name != pv.Package.Name {
+			continue
+		}
+		_, hasImportsField := v.EcosystemSpecific["imports"]
+		if hasImportsField {
+			// If there is source information, then analysis has been performed, and
+			// code does not import the vulnerable package, so definitely not called
+			(*analysis)[vulnID] = models.AnalysisInfo{
+				Called: false,
+			}
 		}
 	}
 }
 
 func runGovulncheck(moddir string, vulns []models.Vulnerability, goVersion string) (map[string][]*govulncheck.Finding, error) {
-	// Create a temporary directory containing all the vulnerabilities that
+	// Create a temporary directory containing all of the vulnerabilities that
 	// are passed in to check against govulncheck.
 	//
 	// This enables OSV scanner to supply the OSV vulnerabilities to run
@@ -162,9 +137,7 @@ func runGovulncheck(moddir string, vulns []models.Vulnerability, goVersion strin
 	cmd := scan.Command(context.Background(), "-db", dbdirURL.String(), "-C", moddir, "-json", "./...")
 	var b bytes.Buffer
 	cmd.Stdout = &b
-	// Disable CGO because govulncheck does not support CGO code, and will always fail.
-	// This still leaves govulncheck enabled for non C related calls.
-	cmd.Env = append(os.Environ(), "GOVERSION=go"+goVersion, "CGO_ENABLED=0")
+	cmd.Env = append(os.Environ(), fmt.Sprintf("GOVERSION=go%s", goVersion))
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}

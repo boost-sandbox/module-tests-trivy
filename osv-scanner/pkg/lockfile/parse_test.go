@@ -100,7 +100,6 @@ func TestParse_FindsExpectedParsers(t *testing.T) {
 		"conan.lock",
 		"Gemfile.lock",
 		"go.mod",
-		"gradle/verification-metadata.xml",
 		"gradle.lockfile",
 		"mix.lock",
 		"Pipfile.lock",
@@ -305,6 +304,7 @@ func TestPackages_Ecosystems(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 

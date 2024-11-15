@@ -13,7 +13,7 @@ import (
 
 var fixturesDir = "integration/fixtures-go"
 
-func Test_runGovulncheck(t *testing.T) {
+func Test_RunGoVulnCheck(t *testing.T) {
 	t.Parallel()
 	entries, err := os.ReadDir(fixturesDir)
 	if err != nil {
@@ -57,7 +57,6 @@ func Test_runGovulncheck(t *testing.T) {
 	for _, traceItem := range res["GO-2023-2382"][2].Trace {
 		traceItem.Position.Filename = "<Any value>"
 		traceItem.Position.Offset = -1
-		traceItem.Position.Line = -1 // This number differs between go versions
 	}
 
 	testutility.NewSnapshot().MatchJSON(t, res)

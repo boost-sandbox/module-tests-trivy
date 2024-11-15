@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-
-	"golang.org/x/exp/maps"
 )
 
 type PipenvPackage struct {
@@ -39,7 +37,7 @@ func (e PipenvLockExtractor) Extract(f DepFile) ([]PackageDetails, error) {
 	addPkgDetails(details, parsedLockfile.Packages, "")
 	addPkgDetails(details, parsedLockfile.PackagesDev, "dev")
 
-	return maps.Values(details), nil
+	return pkgDetailsMapToSlice(details), nil
 }
 
 func addPkgDetails(details map[string]PackageDetails, packages map[string]PipenvPackage, group string) {
@@ -72,7 +70,6 @@ func init() {
 	registerExtractor("Pipfile.lock", PipenvLockExtractor{})
 }
 
-// Deprecated: use PipenvLockExtractor.Extract instead
 func ParsePipenvLock(pathToLockfile string) ([]PackageDetails, error) {
 	return extractFromFile(pathToLockfile, PipenvLockExtractor{})
 }

@@ -14,7 +14,8 @@ func TestParse(t *testing.T) {
 
 	ecosystems := lockfile.KnownEcosystems()
 
-	ecosystems = append(ecosystems, "Alpine", "Debian", "Ubuntu")
+	// todo: remove once CRAN is supported by lockfile
+	ecosystems = append(ecosystems, "CRAN")
 
 	for _, ecosystem := range ecosystems {
 		_, err := semantic.Parse("", models.Ecosystem(ecosystem))
@@ -36,7 +37,8 @@ func TestMustParse(t *testing.T) {
 
 	ecosystems := lockfile.KnownEcosystems()
 
-	ecosystems = append(ecosystems, "Alpine", "Debian", "Ubuntu")
+	// todo: remove once CRAN is supported by lockfile
+	ecosystems = append(ecosystems, "CRAN")
 
 	for _, ecosystem := range ecosystems {
 		semantic.MustParse("", models.Ecosystem(ecosystem))

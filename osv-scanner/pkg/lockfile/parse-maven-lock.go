@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/google/osv-scanner/internal/cachedregexp"
-	"golang.org/x/exp/maps"
 )
 
 type MavenLockDependency struct {
@@ -121,22 +120,6 @@ func (e MavenLockExtractor) Extract(f DepFile) ([]PackageDetails, error) {
 
 	details := map[string]PackageDetails{}
 
-	for _, lockPackage := range parsedLockfile.ManagedDependencies {
-		finalName := lockPackage.GroupID + ":" + lockPackage.ArtifactID
-		pkgDetails := PackageDetails{
-			Name:      finalName,
-			Version:   lockPackage.ResolveVersion(*parsedLockfile),
-			Ecosystem: MavenEcosystem,
-			CompareAs: MavenEcosystem,
-		}
-		if scope := strings.TrimSpace(lockPackage.Scope); scope != "" && scope != "compile" {
-			// Only append non-default scope (compile is the default scope).
-			pkgDetails.DepGroups = append(pkgDetails.DepGroups, scope)
-		}
-		details[finalName] = pkgDetails
-	}
-
-	// standard dependencies take precedent over managed dependencies
 	for _, lockPackage := range parsedLockfile.Dependencies {
 		finalName := lockPackage.GroupID + ":" + lockPackage.ArtifactID
 
@@ -146,14 +129,28 @@ func (e MavenLockExtractor) Extract(f DepFile) ([]PackageDetails, error) {
 			Ecosystem: MavenEcosystem,
 			CompareAs: MavenEcosystem,
 		}
-		if scope := strings.TrimSpace(lockPackage.Scope); scope != "" && scope != "compile" {
-			// Only append non-default scope (compile is the default scope).
-			pkgDetails.DepGroups = append(pkgDetails.DepGroups, scope)
+		if strings.TrimSpace(lockPackage.Scope) != "" {
+			pkgDetails.DepGroups = append(pkgDetails.DepGroups, lockPackage.Scope)
 		}
 		details[finalName] = pkgDetails
 	}
 
-	return maps.Values(details), nil
+	// managed dependencies take precedent over standard dependencies
+	for _, lockPackage := range parsedLockfile.ManagedDependencies {
+		finalName := lockPackage.GroupID + ":" + lockPackage.ArtifactID
+		pkgDetails := PackageDetails{
+			Name:      finalName,
+			Version:   lockPackage.ResolveVersion(*parsedLockfile),
+			Ecosystem: MavenEcosystem,
+			CompareAs: MavenEcosystem,
+		}
+		if strings.TrimSpace(lockPackage.Scope) != "" {
+			pkgDetails.DepGroups = append(pkgDetails.DepGroups, lockPackage.Scope)
+		}
+		details[finalName] = pkgDetails
+	}
+
+	return pkgDetailsMapToSlice(details), nil
 }
 
 var _ Extractor = MavenLockExtractor{}
@@ -163,7 +160,6 @@ func init() {
 	registerExtractor("pom.xml", MavenLockExtractor{})
 }
 
-// Deprecated: use MavenLockExtractor.Extract instead
 func ParseMavenLock(pathToLockfile string) ([]PackageDetails, error) {
 	return extractFromFile(pathToLockfile, MavenLockExtractor{})
 }

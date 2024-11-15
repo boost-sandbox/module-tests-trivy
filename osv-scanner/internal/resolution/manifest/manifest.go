@@ -15,17 +15,17 @@ import (
 )
 
 type Manifest struct {
-	FilePath          string                       // Path to the manifest file on disk
-	Root              resolve.Version              // Version representing this package
-	Requirements      []resolve.RequirementVersion // All direct requirements, including dev
-	Groups            map[RequirementKey][]string  // Dependency groups that the imports belong to
-	LocalManifests    []Manifest                   // manifests of local packages
-	EcosystemSpecific any                          // Any ecosystem-specific information needed
+	FilePath          string                          // Path to the manifest file on disk
+	Root              resolve.Version                 // Version representing this package
+	Requirements      []resolve.RequirementVersion    // All direct requirements, including dev
+	Groups            map[resolve.PackageKey][]string // Dependency groups that the imports belong to
+	LocalManifests    []Manifest                      // manifests of local packages
+	EcosystemSpecific any                             // Any ecosystem-specific information needed
 }
 
 func newManifest() Manifest {
 	return Manifest{
-		Groups: make(map[RequirementKey][]string),
+		Groups: make(map[resolve.PackageKey][]string),
 	}
 }
 
@@ -53,25 +53,23 @@ type DependencyPatch struct {
 	NewResolved  string             // The version the new resolves to e.g. "2.4.6" (for display only)
 }
 
-type Patch struct {
+type ManifestPatch struct {
 	Manifest          *Manifest         // The original manifest
 	Deps              []DependencyPatch // Changed direct dependencies
 	EcosystemSpecific any               // Any ecosystem-specific information
 }
 
-type ReadWriter interface {
-	// System returns which ecosystem this ReadWriter is for.
-	System() resolve.System
+type ManifestIO interface {
 	// Read parses a manifest file into a Manifest, possibly recursively following references to other local manifest files
 	Read(file lockfile.DepFile) (Manifest, error)
-	// Write applies the Patch to the manifest, with minimal changes to the file.
+	// Write applies the ManifestPatch to the manifest, with minimal changes to the file.
 	// `original` is the original manifest file to read from. The updated manifest is written to `output`.
-	Write(original lockfile.DepFile, output io.Writer, patches Patch) error
+	Write(original lockfile.DepFile, output io.Writer, patches ManifestPatch) error
 }
 
 // Overwrite applies the ManifestPatch to the manifest at filename.
 // Used so as to not have the same file open for reading and writing at the same time.
-func Overwrite(rw ReadWriter, filename string, p Patch) error {
+func Overwrite(rw ManifestIO, filename string, p ManifestPatch) error {
 	r, err := lockfile.OpenLocalDepFile(filename)
 	if err != nil {
 		return err
@@ -92,34 +90,12 @@ func Overwrite(rw ReadWriter, filename string, p Patch) error {
 	return nil
 }
 
-func GetReadWriter(pathToManifest string, registry string) (ReadWriter, error) {
+func GetManifestIO(pathToManifest string) (ManifestIO, error) {
 	base := filepath.Base(pathToManifest)
 	switch {
-	case base == "pom.xml":
-		return NewMavenReadWriter(registry)
 	case base == "package.json":
-		return NpmReadWriter{}, nil
+		return NpmManifestIO{}, nil
 	default:
 		return nil, fmt.Errorf("unsupported manifest type: %s", base)
-	}
-}
-
-// A RequirementKey is a comparable type that uniquely identifies a package dependency in a manifest.
-// It does not include the version specification.
-type RequirementKey struct {
-	resolve.PackageKey
-	EcosystemSpecific any
-}
-
-func MakeRequirementKey(requirement resolve.RequirementVersion) RequirementKey {
-	switch requirement.System {
-	case resolve.NPM:
-		return npmRequirementKey(requirement)
-	case resolve.Maven:
-		return mavenRequirementKey(requirement)
-	case resolve.UnknownSystem:
-		fallthrough
-	default:
-		return RequirementKey{PackageKey: requirement.PackageKey}
 	}
 }

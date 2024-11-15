@@ -35,6 +35,7 @@ func TestGroupFixedVersions(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := output.GroupFixedVersions(tt.args)
@@ -64,14 +65,15 @@ func TestPrintSARIFReport(t *testing.T) {
 				map[string]string{
 					"lockfile:D:\\\\path\\\\to\\\\sub-rust-project\\\\Cargo.lock": "lockfile:/path/to/sub-rust-project/Cargo.lock",
 					"lockfile:D:\\\\path\\\\to\\\\go.mod":                         "lockfile:/path/to/go.mod",
-					"D:\\\\path\\\\to\\\\sub-rust-project\\\\osv-scanner.toml":    "/path/to/sub-rust-project/osv-scanner.toml",
-					"D:\\\\path\\\\to\\\\osv-scanner.toml":                        "/path/to/osv-scanner.toml",
+					"D:\\\\path\\\\to\\\\sub-rust-project/osv-scanner.toml":       "/path/to/sub-rust-project/osv-scanner.toml",
+					"D:\\\\path\\\\to/osv-scanner.toml":                           "/path/to/osv-scanner.toml",
 					"file:///D:/path/to":                                          "file:///path/to",
 				},
 			),
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -83,70 +85,4 @@ func TestPrintSARIFReport(t *testing.T) {
 			tt.want.MatchText(t, bufOut.String())
 		})
 	}
-}
-
-func TestPrintSARIFReport_WithVulnerabilities(t *testing.T) {
-	t.Parallel()
-
-	testOutputWithVulnerabilities(t, func(t *testing.T, args outputTestCaseArgs) {
-		t.Helper()
-
-		outputWriter := &bytes.Buffer{}
-		err := output.PrintSARIFReport(args.vulnResult, outputWriter)
-
-		if err != nil {
-			t.Errorf("Error writing SARIF output: %s", err)
-		}
-
-		testutility.NewSnapshot().WithWindowsReplacements(
-			map[string]string{
-				"path\\\\to\\\\my\\\\first\\\\osv-scanner.toml":  "path/to/my/first/osv-scanner.toml",
-				"path\\\\to\\\\my\\\\second\\\\osv-scanner.toml": "path/to/my/second/osv-scanner.toml",
-				"path\\\\to\\\\my\\\\third\\\\osv-scanner.toml":  "path/to/my/third/osv-scanner.toml",
-			}).MatchText(t, outputWriter.String())
-	})
-}
-
-func TestPrintSARIFReport_WithLicenseViolations(t *testing.T) {
-	t.Parallel()
-
-	testOutputWithLicenseViolations(t, func(t *testing.T, args outputTestCaseArgs) {
-		t.Helper()
-
-		outputWriter := &bytes.Buffer{}
-		err := output.PrintSARIFReport(args.vulnResult, outputWriter)
-
-		if err != nil {
-			t.Errorf("Error writing SARIF output: %s", err)
-		}
-
-		testutility.NewSnapshot().WithWindowsReplacements(
-			map[string]string{
-				"path\\\\to\\\\my\\\\first\\\\osv-scanner.toml":  "path/to/my/first/osv-scanner.toml",
-				"path\\\\to\\\\my\\\\second\\\\osv-scanner.toml": "path/to/my/second/osv-scanner.toml",
-				"path\\\\to\\\\my\\\\third\\\\osv-scanner.toml":  "path/to/my/third/osv-scanner.toml",
-			}).MatchText(t, outputWriter.String())
-	})
-}
-
-func TestPrintSARIFReport_WithMixedIssues(t *testing.T) {
-	t.Parallel()
-
-	testOutputWithMixedIssues(t, func(t *testing.T, args outputTestCaseArgs) {
-		t.Helper()
-
-		outputWriter := &bytes.Buffer{}
-		err := output.PrintSARIFReport(args.vulnResult, outputWriter)
-
-		if err != nil {
-			t.Errorf("Error writing SARIF output: %s", err)
-		}
-
-		testutility.NewSnapshot().WithWindowsReplacements(
-			map[string]string{
-				"path\\\\to\\\\my\\\\first\\\\osv-scanner.toml":  "path/to/my/first/osv-scanner.toml",
-				"path\\\\to\\\\my\\\\second\\\\osv-scanner.toml": "path/to/my/second/osv-scanner.toml",
-				"path\\\\to\\\\my\\\\third\\\\osv-scanner.toml":  "path/to/my/third/osv-scanner.toml",
-			}).MatchText(t, outputWriter.String())
-	})
 }

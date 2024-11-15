@@ -10,28 +10,24 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"slices"
-	"sort"
 	"strings"
 
-	"github.com/google/osv-scanner/internal/config"
-	"github.com/google/osv-scanner/internal/customgitignore"
-	"github.com/google/osv-scanner/internal/depsdev"
 	"github.com/google/osv-scanner/internal/image"
 	"github.com/google/osv-scanner/internal/local"
-	"github.com/google/osv-scanner/internal/manifest"
 	"github.com/google/osv-scanner/internal/output"
-	"github.com/google/osv-scanner/internal/resolution/client"
-	"github.com/google/osv-scanner/internal/resolution/datasource"
 	"github.com/google/osv-scanner/internal/sbom"
 	"github.com/google/osv-scanner/internal/semantic"
 	"github.com/google/osv-scanner/internal/version"
+	"github.com/google/osv-scanner/pkg/config"
+	"github.com/google/osv-scanner/pkg/depsdev"
 	"github.com/google/osv-scanner/pkg/lockfile"
 	"github.com/google/osv-scanner/pkg/models"
 	"github.com/google/osv-scanner/pkg/osv"
 	"github.com/google/osv-scanner/pkg/reporter"
 
-	depsdevpb "deps.dev/api/v3"
+	depsdevpb "deps.dev/api/v3alpha"
+	"github.com/go-git/go-billy/v5"
+	"github.com/go-git/go-billy/v5/osfs"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
 )
@@ -52,41 +48,31 @@ type ScannerActions struct {
 }
 
 type ExperimentalScannerActions struct {
+	CompareLocally        bool
 	CompareOffline        bool
-	DownloadDatabases     bool
 	ShowAllPackages       bool
 	ScanLicensesSummary   bool
 	ScanLicensesAllowlist []string
 	ScanOCIImage          string
 
 	LocalDBPath string
-	TransitiveScanningActions
-}
-
-type TransitiveScanningActions struct {
-	Disabled         bool
-	NativeDataSource bool
-	MavenRegistry    string
 }
 
 // NoPackagesFoundErr for when no packages are found during a scan.
 //
-//nolint:errname,stylecheck,revive // Would require version major bump to change
+//nolint:errname,stylecheck // Would require version major bump to change
 var NoPackagesFoundErr = errors.New("no packages found in scan")
 
 // VulnerabilitiesFoundErr includes both vulnerabilities being found or license violations being found,
 // however, will not be raised if only uncalled vulnerabilities are found.
 //
-//nolint:errname,stylecheck,revive // Would require version major bump to change
+//nolint:errname,stylecheck // Would require version major bump to change
 var VulnerabilitiesFoundErr = errors.New("vulnerabilities found")
 
 // Deprecated: This error is no longer returned, check the results to determine if this is the case
 //
-//nolint:errname,stylecheck,revive // Would require version bump to change
+//nolint:errname,stylecheck // Would require version bump to change
 var OnlyUncalledVulnerabilitiesFoundErr = errors.New("only uncalled vulnerabilities found")
-
-// ErrAPIFailed describes errors related to querying API endpoints.
-var ErrAPIFailed = errors.New("API query failed")
 
 var (
 	vendoredLibNames = map[string]struct{}{
@@ -115,11 +101,11 @@ const (
 //   - Any lockfiles with scanLockfile
 //   - Any SBOM files with scanSBOMFile
 //   - Any git repositories with scanGit
-func scanDir(r reporter.Reporter, dir string, skipGit bool, recursive bool, useGitIgnore bool, compareOffline bool, transitiveAct TransitiveScanningActions) ([]scannedPackage, error) {
+func scanDir(r reporter.Reporter, dir string, skipGit bool, recursive bool, useGitIgnore bool, compareOffline bool) ([]scannedPackage, error) {
 	var ignoreMatcher *gitIgnoreMatcher
 	if useGitIgnore {
 		var err error
-		ignoreMatcher, err = parseGitIgnores(dir, recursive)
+		ignoreMatcher, err = parseGitIgnores(dir)
 		if err != nil {
 			r.Errorf("Unable to parse git ignores: %v\n", err)
 			useGitIgnore = false
@@ -172,7 +158,7 @@ func scanDir(r reporter.Reporter, dir string, skipGit bool, recursive bool, useG
 
 		if !info.IsDir() {
 			if extractor, _ := lockfile.FindExtractor(path, ""); extractor != nil {
-				pkgs, err := scanLockfile(r, path, "", transitiveAct)
+				pkgs, err := scanLockfile(r, path, "")
 				if err != nil {
 					r.Errorf("Attempted to scan lockfile but failed: %s\n", path)
 				}
@@ -209,15 +195,38 @@ type gitIgnoreMatcher struct {
 	repoPath string
 }
 
-func parseGitIgnores(path string, recursive bool) (*gitIgnoreMatcher, error) {
-	patterns, repoRootPath, err := customgitignore.ParseGitIgnores(path, recursive)
+func parseGitIgnores(path string) (*gitIgnoreMatcher, error) {
+	// We need to parse .gitignore files from the root of the git repo to correctly identify ignored files
+	var fs billy.Filesystem
+
+	// Default to path (or directory containing path if it's a file) is not in a repo or some other error
+	finfo, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if finfo.IsDir() {
+		fs = osfs.New(path)
+	} else {
+		fs = osfs.New(filepath.Dir(path))
+	}
+
+	if repo, err := git.PlainOpenWithOptions(path, &git.PlainOpenOptions{DetectDotGit: true}); err == nil {
+		if tree, err := repo.Worktree(); err == nil {
+			fs = tree.Filesystem
+		}
+	}
+
+	patterns, err := gitignore.ReadPatterns(fs, []string{"."})
+	if err != nil {
+		return nil, err
+	}
+	matcher := gitignore.NewMatcher(patterns)
+	repopath, err := filepath.Abs(fs.Root())
 	if err != nil {
 		return nil, err
 	}
 
-	matcher := gitignore.NewMatcher(patterns)
-
-	return &gitIgnoreMatcher{matcher: matcher, repoPath: repoRootPath}, nil
+	return &gitIgnoreMatcher{matcher: matcher, repoPath: repopath}, nil
 }
 
 func queryDetermineVersions(repoDir string) (*osv.DetermineVersionResponse, error) {
@@ -231,7 +240,7 @@ func queryDetermineVersions(repoDir string) (*osv.DetermineVersionResponse, erro
 	}
 
 	var hashes []osv.DetermineVersionHash
-	if err := filepath.Walk(repoDir, func(p string, info fs.FileInfo, _ error) error {
+	if err := filepath.Walk(repoDir, func(p string, info fs.FileInfo, err error) error {
 		if info.IsDir() {
 			if _, err := os.Stat(filepath.Join(p, ".git")); err == nil {
 				// Found a git repo, stop here as otherwise we may get duplicated
@@ -335,12 +344,11 @@ func scanImage(r reporter.Reporter, path string) ([]scannedPackage, error) {
 	for _, l := range scanResults.Lockfiles {
 		for _, pkgDetail := range l.Packages {
 			packages = append(packages, scannedPackage{
-				Name:        pkgDetail.Name,
-				Version:     pkgDetail.Version,
-				Commit:      pkgDetail.Commit,
-				Ecosystem:   pkgDetail.Ecosystem,
-				DepGroups:   pkgDetail.DepGroups,
-				ImageOrigin: pkgDetail.ImageOrigin,
+				Name:      pkgDetail.Name,
+				Version:   pkgDetail.Version,
+				Commit:    pkgDetail.Commit,
+				Ecosystem: pkgDetail.Ecosystem,
+				DepGroups: pkgDetail.DepGroups,
 				Source: models.SourceInfo{
 					Path: path + ":" + l.FilePath,
 					Type: "docker",
@@ -354,7 +362,7 @@ func scanImage(r reporter.Reporter, path string) ([]scannedPackage, error) {
 
 // scanLockfile will load, identify, and parse the lockfile path passed in, and add the dependencies specified
 // within to `query`
-func scanLockfile(r reporter.Reporter, path string, parseAs string, transitiveAct TransitiveScanningActions) ([]scannedPackage, error) {
+func scanLockfile(r reporter.Reporter, path string, parseAs string) ([]scannedPackage, error) {
 	var err error
 	var parsedLockfile lockfile.Lockfile
 
@@ -372,11 +380,7 @@ func scanLockfile(r reporter.Reporter, path string, parseAs string, transitiveAc
 		case "osv-scanner":
 			parsedLockfile, err = lockfile.FromOSVScannerResults(path)
 		default:
-			if !transitiveAct.Disabled && (parseAs == "pom.xml" || filepath.Base(path) == "pom.xml") {
-				parsedLockfile, err = extractMavenDeps(f, transitiveAct)
-			} else {
-				parsedLockfile, err = lockfile.ExtractDeps(f, parseAs)
-			}
+			parsedLockfile, err = lockfile.ExtractDeps(f, parseAs)
 		}
 	}
 
@@ -416,53 +420,11 @@ func scanLockfile(r reporter.Reporter, path string, parseAs string, transitiveAc
 	return packages, nil
 }
 
-func extractMavenDeps(f lockfile.DepFile, actions TransitiveScanningActions) (lockfile.Lockfile, error) {
-	var depClient client.DependencyClient
-	var err error
-	if actions.NativeDataSource {
-		depClient, err = client.NewMavenRegistryClient(actions.MavenRegistry)
-	} else {
-		depClient, err = client.NewDepsDevClient(depsdev.DepsdevAPI)
-	}
-	if err != nil {
-		return lockfile.Lockfile{}, err
-	}
-
-	mavenClient, err := datasource.NewMavenRegistryAPIClient(actions.MavenRegistry)
-	if err != nil {
-		return lockfile.Lockfile{}, err
-	}
-
-	extractor := manifest.MavenResolverExtractor{
-		DependencyClient:       depClient,
-		MavenRegistryAPIClient: mavenClient,
-	}
-	packages, err := extractor.Extract(f)
-	if err != nil {
-		err = fmt.Errorf("failed extracting %s: %w", f.Path(), err)
-	}
-
-	// Sort packages for testing convenience.
-	sort.Slice(packages, func(i, j int) bool {
-		if packages[i].Name == packages[j].Name {
-			return packages[i].Version < packages[j].Version
-		}
-
-		return packages[i].Name < packages[j].Name
-	})
-
-	return lockfile.Lockfile{
-		FilePath: f.Path(),
-		ParsedAs: "pom.xml",
-		Packages: packages,
-	}, err
-}
-
 // scanSBOMFile will load, identify, and parse the SBOM path passed in, and add the dependencies specified
 // within to `query`
 func scanSBOMFile(r reporter.Reporter, path string, fromFSScan bool) ([]scannedPackage, error) {
 	var errs []error
-	packages := map[string]scannedPackage{}
+	var packages []scannedPackage
 	for _, provider := range sbom.Providers {
 		if fromFSScan && !provider.MatchesRecognizedFileNames(path) {
 			// Skip if filename is not usually a sbom file of this format.
@@ -481,26 +443,21 @@ func scanSBOMFile(r reporter.Reporter, path string, fromFSScan bool) ([]scannedP
 		}
 		defer file.Close()
 
-		var ignoredPURLs []string
+		ignoredCount := 0
 		err = provider.GetPackages(file, func(id sbom.Identifier) error {
 			_, err := models.PURLToPackage(id.PURL)
 			if err != nil {
-				ignoredPURLs = append(ignoredPURLs, id.PURL)
+				ignoredCount++
 				//nolint:nilerr
 				return nil
 			}
-
-			if _, ok := packages[id.PURL]; ok {
-				r.Warnf("Warning, duplicate PURL found in SBOM: %s\n", id.PURL)
-			}
-
-			packages[id.PURL] = scannedPackage{
+			packages = append(packages, scannedPackage{
 				PURL: id.PURL,
 				Source: models.SourceInfo{
 					Path: path,
 					Type: "sbom",
 				},
-			}
+			})
 
 			return nil
 		})
@@ -524,32 +481,15 @@ func scanSBOMFile(r reporter.Reporter, path string, fromFSScan bool) ([]scannedP
 				len(packages),
 				output.Form(len(packages), "package", "packages"),
 			)
-			if len(ignoredPURLs) > 0 {
-				r.Warnf(
+			if ignoredCount > 0 {
+				r.Infof(
 					"Ignored %d %s with invalid PURLs\n",
-					len(ignoredPURLs),
-					output.Form(len(ignoredPURLs), "package", "packages"),
+					ignoredCount,
+					output.Form(ignoredCount, "package", "packages"),
 				)
-				slices.Sort(ignoredPURLs)
-				for _, purl := range slices.Compact(ignoredPURLs) {
-					r.Warnf(
-						"Ignored invalid PURL \"%s\"\n",
-						purl,
-					)
-				}
 			}
 
-			sliceOfPackages := make([]scannedPackage, 0, len(packages))
-
-			for _, pkg := range packages {
-				sliceOfPackages = append(sliceOfPackages, pkg)
-			}
-
-			slices.SortFunc(sliceOfPackages, func(i, j scannedPackage) int {
-				return strings.Compare(i.PURL, j.PURL)
-			})
-
-			return sliceOfPackages, nil
+			return packages, nil
 		}
 
 		var formatErr sbom.InvalidFormatError
@@ -565,11 +505,11 @@ func scanSBOMFile(r reporter.Reporter, path string, fromFSScan bool) ([]scannedP
 	if !fromFSScan {
 		r.Infof("Failed to parse SBOM using all supported formats:\n")
 		for _, err := range errs {
-			r.Infof("%s\n", err.Error())
+			r.Infof(err.Error() + "\n")
 		}
 	}
 
-	return nil, nil
+	return packages, nil
 }
 
 func getCommitSHA(repoDir string) (string, error) {
@@ -652,35 +592,14 @@ func scanDebianDocker(r reporter.Reporter, dockerImageName string) ([]scannedPac
 		r.Errorf("Failed to get stdout: %s\n", err)
 		return nil, err
 	}
-	stderr, err := cmd.StderrPipe()
-
-	if err != nil {
-		r.Errorf("Failed to get stderr: %s\n", err)
-		return nil, err
-	}
-
 	err = cmd.Start()
 	if err != nil {
 		r.Errorf("Failed to start docker image: %s\n", err)
 		return nil, err
 	}
-	defer func() {
-		var stderrlines []string
-
-		scanner := bufio.NewScanner(stderr)
-		for scanner.Scan() {
-			stderrlines = append(stderrlines, scanner.Text())
-		}
-
-		err := cmd.Wait()
-		if err != nil {
-			r.Errorf("Docker command exited with code %d\n", cmd.ProcessState.ExitCode())
-			for _, line := range stderrlines {
-				r.Errorf("> %s\n", line)
-			}
-		}
-	}()
-
+	// TODO: Do error checking here
+	//nolint:errcheck
+	defer cmd.Wait()
 	scanner := bufio.NewScanner(stdout)
 	var packages []scannedPackage
 	for scanner.Scan() {
@@ -715,7 +634,7 @@ func scanDebianDocker(r reporter.Reporter, dockerImageName string) ([]scannedPac
 }
 
 // Filters results according to config, preserving order. Returns total number of vulnerabilities removed.
-func filterResults(r reporter.Reporter, results *models.VulnerabilityResults, configManager *config.Manager, allPackages bool) int {
+func filterResults(r reporter.Reporter, results *models.VulnerabilityResults, configManager *config.ConfigManager, allPackages bool) int {
 	removedCount := 0
 	newResults := []models.PackageSource{} // Want 0 vulnerabilities to show in JSON as an empty list, not null.
 	for _, pkgSrc := range results.Results {
@@ -742,7 +661,6 @@ func filterResults(r reporter.Reporter, results *models.VulnerabilityResults, co
 // Filters package-grouped vulnerabilities according to config, preserving ordering. Returns filtered package vulnerabilities.
 func filterPackageVulns(r reporter.Reporter, pkgVulns models.PackageVulns, configToUse config.Config) models.PackageVulns {
 	ignoredVulns := map[string]struct{}{}
-
 	// Iterate over groups first to remove all aliases of ignored vulnerabilities.
 	var newGroups []models.GroupInfo
 	for _, group := range pkgVulns.Groups {
@@ -753,21 +671,14 @@ func filterPackageVulns(r reporter.Reporter, pkgVulns models.PackageVulns, confi
 				for _, id := range group.Aliases {
 					ignoredVulns[id] = struct{}{}
 				}
-
-				reason := ignoreLine.Reason
-
-				if reason == "" {
-					reason = "(no reason given)"
-				}
-
 				// NB: This only prints the first reason encountered in all the aliases.
 				switch len(group.Aliases) {
 				case 1:
-					r.Infof("%s has been filtered out because: %s\n", ignoreLine.ID, reason)
+					r.Infof("%s has been filtered out because: %s\n", ignoreLine.ID, ignoreLine.Reason)
 				case 2:
-					r.Infof("%s and 1 alias have been filtered out because: %s\n", ignoreLine.ID, reason)
+					r.Infof("%s and 1 alias have been filtered out because: %s\n", ignoreLine.ID, ignoreLine.Reason)
 				default:
-					r.Infof("%s and %d aliases have been filtered out because: %s\n", ignoreLine.ID, len(group.Aliases)-1, reason)
+					r.Infof("%s and %d aliases have been filtered out because: %s\n", ignoreLine.ID, len(group.Aliases)-1, ignoreLine.Reason)
 				}
 
 				break
@@ -805,14 +716,13 @@ func parseLockfilePath(lockfileElem string) (string, string) {
 }
 
 type scannedPackage struct {
-	PURL        string
-	Name        string
-	Ecosystem   lockfile.Ecosystem
-	Commit      string
-	Version     string
-	Source      models.SourceInfo
-	ImageOrigin *models.ImageOriginDetails
-	DepGroups   []string
+	PURL      string
+	Name      string
+	Ecosystem lockfile.Ecosystem
+	Commit    string
+	Version   string
+	Source    models.SourceInfo
+	DepGroups []string
 }
 
 // Perform osv scanner action, with optional reporter to output information
@@ -822,18 +732,18 @@ func DoScan(actions ScannerActions, r reporter.Reporter) (models.VulnerabilityRe
 	}
 
 	if actions.CompareOffline {
+		actions.CompareLocally = true
+	}
+
+	if actions.CompareLocally {
 		actions.SkipGit = true
 
 		if len(actions.ScanLicensesAllowlist) > 0 || actions.ScanLicensesSummary {
-			return models.VulnerabilityResults{}, errors.New("cannot retrieve licenses locally")
+			return models.VulnerabilityResults{}, fmt.Errorf("cannot retrieve licenses locally")
 		}
 	}
 
-	if !actions.CompareOffline && actions.DownloadDatabases {
-		return models.VulnerabilityResults{}, errors.New("databases can only be downloaded when running in offline mode")
-	}
-
-	configManager := config.Manager{
+	configManager := config.ConfigManager{
 		DefaultConfig: config.Config{},
 		ConfigMap:     make(map[string]config.Config),
 	}
@@ -872,7 +782,7 @@ func DoScan(actions ScannerActions, r reporter.Reporter) (models.VulnerabilityRe
 			r.Errorf("Failed to resolved path with error %s\n", err)
 			return models.VulnerabilityResults{}, err
 		}
-		pkgs, err := scanLockfile(r, lockfilePath, parseAs, actions.TransitiveScanningActions)
+		pkgs, err := scanLockfile(r, lockfilePath, parseAs)
 		if err != nil {
 			return models.VulnerabilityResults{}, err
 		}
@@ -897,7 +807,7 @@ func DoScan(actions ScannerActions, r reporter.Reporter) (models.VulnerabilityRe
 
 	for _, dir := range actions.DirectoryPaths {
 		r.Infof("Scanning dir %s\n", dir)
-		pkgs, err := scanDir(r, dir, actions.SkipGit, actions.Recursive, !actions.NoIgnore, actions.CompareOffline, actions.TransitiveScanningActions)
+		pkgs, err := scanDir(r, dir, actions.SkipGit, actions.Recursive, !actions.NoIgnore, actions.CompareOffline)
 		if err != nil {
 			return models.VulnerabilityResults{}, err
 		}
@@ -908,21 +818,13 @@ func DoScan(actions ScannerActions, r reporter.Reporter) (models.VulnerabilityRe
 		return models.VulnerabilityResults{}, NoPackagesFoundErr
 	}
 
-	filteredScannedPackagesWithoutUnscannable := filterUnscannablePackages(scannedPackages)
+	filteredScannedPackages := filterUnscannablePackages(scannedPackages)
 
-	if len(filteredScannedPackagesWithoutUnscannable) != len(scannedPackages) {
-		r.Infof("Filtered %d local package/s from the scan.\n", len(scannedPackages)-len(filteredScannedPackagesWithoutUnscannable))
+	if len(filteredScannedPackages) != len(scannedPackages) {
+		r.Infof("Filtered %d local package/s from the scan.\n", len(scannedPackages)-len(filteredScannedPackages))
 	}
 
-	filteredScannedPackages := filterIgnoredPackages(r, filteredScannedPackagesWithoutUnscannable, &configManager)
-
-	if len(filteredScannedPackages) != len(filteredScannedPackagesWithoutUnscannable) {
-		r.Infof("Filtered %d ignored package/s from the scan.\n", len(filteredScannedPackagesWithoutUnscannable)-len(filteredScannedPackages))
-	}
-
-	overrideGoVersion(r, filteredScannedPackages, &configManager)
-
-	vulnsResp, err := makeRequest(r, filteredScannedPackages, actions.CompareOffline, actions.DownloadDatabases, actions.LocalDBPath)
+	vulnsResp, err := makeRequest(r, filteredScannedPackages, actions.CompareLocally, actions.CompareOffline, actions.LocalDBPath)
 	if err != nil {
 		return models.VulnerabilityResults{}, err
 	}
@@ -934,7 +836,7 @@ func DoScan(actions ScannerActions, r reporter.Reporter) (models.VulnerabilityRe
 			return models.VulnerabilityResults{}, err
 		}
 	}
-	results := buildVulnerabilityResults(r, filteredScannedPackages, vulnsResp, licensesResp, actions, &configManager)
+	results := buildVulnerabilityResults(r, filteredScannedPackages, vulnsResp, licensesResp, actions)
 
 	filtered := filterResults(r, &results, &configManager, actions.ShowAllPackages)
 	if filtered > 0 {
@@ -969,9 +871,9 @@ func DoScan(actions ScannerActions, r reporter.Reporter) (models.VulnerabilityRe
 		if (!vuln || onlyUncalledVuln) && !licenseViolation {
 			// There is no error.
 			return results, nil
+		} else {
+			return results, VulnerabilitiesFoundErr
 		}
-
-		return results, VulnerabilitiesFoundErr
 	}
 
 	return results, nil
@@ -988,38 +890,6 @@ func filterUnscannablePackages(packages []scannedPackage) []scannedPackage {
 		case p.Commit != "":
 		case p.PURL != "":
 		default:
-			continue
-		}
-		out = append(out, p)
-	}
-
-	return out
-}
-
-// filterIgnoredPackages removes ignore scanned packages according to config. Returns filtered scanned packages.
-func filterIgnoredPackages(r reporter.Reporter, packages []scannedPackage, configManager *config.Manager) []scannedPackage {
-	out := make([]scannedPackage, 0, len(packages))
-	for _, p := range packages {
-		configToUse := configManager.Get(r, p.Source.Path)
-		pkg := models.PackageVulns{
-			Package: models.PackageInfo{
-				Name:      p.Name,
-				Version:   p.Version,
-				Ecosystem: string(p.Ecosystem),
-				Commit:    p.Commit,
-			},
-			DepGroups: p.DepGroups,
-		}
-
-		if ignore, ignoreLine := configToUse.ShouldIgnorePackage(pkg); ignore {
-			pkgString := fmt.Sprintf("%s/%s/%s", p.Ecosystem, p.Name, p.Version)
-			reason := ignoreLine.Reason
-
-			if reason == "" {
-				reason = "(no reason given)"
-			}
-			r.Infof("Package %s has been filtered out because: %s\n", pkgString, reason)
-
 			continue
 		}
 		out = append(out, p)
@@ -1057,8 +927,8 @@ func patchPackageForRequest(pkg scannedPackage) scannedPackage {
 func makeRequest(
 	r reporter.Reporter,
 	packages []scannedPackage,
+	compareLocally bool,
 	compareOffline bool,
-	downloadDBs bool,
 	localDBPath string) (*osv.HydratedBatchedResponse, error) {
 	// Make OSV queries from the packages.
 	var query osv.BatchedQuery
@@ -1081,11 +951,10 @@ func makeRequest(
 		}
 	}
 
-	if compareOffline {
-		// Downloading databases requires network access.
-		hydratedResp, err := local.MakeRequest(r, query, !downloadDBs, localDBPath)
+	if compareLocally {
+		hydratedResp, err := local.MakeRequest(r, query, compareOffline, localDBPath)
 		if err != nil {
-			return &osv.HydratedBatchedResponse{}, fmt.Errorf("local comparison failed %w", err)
+			return &osv.HydratedBatchedResponse{}, fmt.Errorf("scan failed %w", err)
 		}
 
 		return hydratedResp, nil
@@ -1097,12 +966,12 @@ func makeRequest(
 
 	resp, err := osv.MakeRequest(query)
 	if err != nil {
-		return &osv.HydratedBatchedResponse{}, fmt.Errorf("%w: osv.dev query failed: %w", ErrAPIFailed, err)
+		return &osv.HydratedBatchedResponse{}, fmt.Errorf("scan failed %w", err)
 	}
 
 	hydratedResp, err := osv.Hydrate(resp)
 	if err != nil {
-		return &osv.HydratedBatchedResponse{}, fmt.Errorf("%w: failed to hydrate OSV response: %w", ErrAPIFailed, err)
+		return &osv.HydratedBatchedResponse{}, fmt.Errorf("failed to hydrate OSV response: %w", err)
 	}
 
 	return hydratedResp, nil
@@ -1119,22 +988,8 @@ func makeLicensesRequests(packages []scannedPackage) ([][]models.License, error)
 	}
 	licenses, err := depsdev.MakeVersionRequests(queries)
 	if err != nil {
-		return nil, fmt.Errorf("%w: deps.dev query failed: %w", ErrAPIFailed, err)
+		return nil, err
 	}
 
 	return licenses, nil
-}
-
-// Overrides Go version using osv-scanner.toml
-func overrideGoVersion(r reporter.Reporter, packages []scannedPackage, configManager *config.Manager) {
-	for i, pkg := range packages {
-		if pkg.Name == "stdlib" && pkg.Ecosystem == "Go" {
-			configToUse := configManager.Get(r, pkg.Source.Path)
-			if configToUse.GoVersionOverride != "" {
-				packages[i].Version = configToUse.GoVersionOverride
-			}
-
-			continue
-		}
-	}
 }

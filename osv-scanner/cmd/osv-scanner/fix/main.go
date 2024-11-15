@@ -1,21 +1,16 @@
 package fix
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
-	"deps.dev/util/resolve"
-	"github.com/google/osv-scanner/internal/depsdev"
 	"github.com/google/osv-scanner/internal/remediation"
-	"github.com/google/osv-scanner/internal/remediation/upgrade"
-	"github.com/google/osv-scanner/internal/resolution"
 	"github.com/google/osv-scanner/internal/resolution/client"
 	"github.com/google/osv-scanner/internal/resolution/lockfile"
 	"github.com/google/osv-scanner/internal/resolution/manifest"
+	"github.com/google/osv-scanner/pkg/depsdev"
 	"github.com/google/osv-scanner/pkg/reporter"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/term"
@@ -28,17 +23,18 @@ const (
 )
 
 type osvFixOptions struct {
-	remediation.Options
+	remediation.RemediationOptions
 	Client     client.ResolutionClient
 	Manifest   string
-	ManifestRW manifest.ReadWriter
+	ManifestRW manifest.ManifestIO
 	Lockfile   string
-	LockfileRW lockfile.ReadWriter
+	LockfileRW lockfile.LockfileIO
 	RelockCmd  string
 }
 
 func Command(stdout, stderr io.Writer, r *reporter.Reporter) *cli.Command {
 	return &cli.Command{
+		Hidden:      true, // TODO: un-hide when ready
 		Name:        "fix",
 		Usage:       "[EXPERIMENTAL] scans a manifest and/or lockfile for vulnerabilities and suggests changes for remediating them",
 		Description: "[EXPERIMENTAL] scans a manifest and/or lockfile for vulnerabilities and suggests changes for remediating them",
@@ -59,17 +55,13 @@ func Command(stdout, stderr io.Writer, r *reporter.Reporter) *cli.Command {
 				Name:  "data-source",
 				Usage: "source to fetch package information from; value can be: deps.dev, native",
 				Value: "deps.dev",
-				Action: func(_ *cli.Context, s string) error {
+				Action: func(ctx *cli.Context, s string) error {
 					if s != "deps.dev" && s != "native" {
 						return fmt.Errorf("unsupported data-source \"%s\" - must be one of: deps.dev, native", s)
 					}
 
 					return nil
 				},
-			},
-			&cli.StringFlag{
-				Name:  "maven-registry",
-				Usage: "URL of the default Maven registry to fetch metadata",
 			},
 			&cli.StringFlag{
 				Name:  "relock-cmd",
@@ -84,7 +76,8 @@ func Command(stdout, stderr io.Writer, r *reporter.Reporter) *cli.Command {
 			&cli.StringFlag{
 				Category: autoModeCategory,
 				Name:     "strategy",
-				Usage:    "remediation approach to use; value can be: in-place, relock, override",
+				Usage:    "remediation approach to use; value can be: in-place, relock",
+				Value:    "relock",
 				Action: func(ctx *cli.Context, s string) error {
 					if !ctx.Bool("non-interactive") {
 						// This flag isn't used in interactive mode
@@ -93,18 +86,14 @@ func Command(stdout, stderr io.Writer, r *reporter.Reporter) *cli.Command {
 					switch s {
 					case "in-place":
 						if !ctx.IsSet("lockfile") {
-							return errors.New("in-place strategy requires lockfile")
+							return fmt.Errorf("in-place strategy requires lockfile")
 						}
 					case "relock":
 						if !ctx.IsSet("manifest") {
-							return errors.New("relock strategy requires manifest file")
-						}
-					case "override":
-						if !ctx.IsSet("manifest") {
-							return errors.New("override strategy requires manifest file")
+							return fmt.Errorf("relock strategy requires manifest file")
 						}
 					default:
-						return fmt.Errorf("unsupported strategy \"%s\" - must be one of: in-place, relock, override", s)
+						return fmt.Errorf("unsupported strategy \"%s\" - must be one of: in-place, relock", s)
 					}
 
 					return nil
@@ -117,23 +106,16 @@ func Command(stdout, stderr io.Writer, r *reporter.Reporter) *cli.Command {
 				Value:    -1,
 			},
 
-			&cli.StringSliceFlag{
-				Category:    upgradeCategory,
-				Name:        "upgrade-config",
-				Usage:       "the allowed package upgrades, in the format `[package-name:]level`. If package-name is omitted, level is applied to all packages. level must be one of (major, minor, patch, none).",
-				DefaultText: "major",
-			},
 			&cli.BoolFlag{
+				// TODO: allow for finer control e.g. specific packages, major/minor/patch
 				Category: upgradeCategory,
 				Name:     "disallow-major-upgrades",
 				Usage:    "disallow major version changes to dependencies",
-				Hidden:   true,
 			},
 			&cli.StringSliceFlag{
 				Category: upgradeCategory,
 				Name:     "disallow-package-upgrades",
 				Usage:    "list of packages to disallow version changes",
-				Hidden:   true,
 			},
 
 			&cli.IntFlag{
@@ -164,26 +146,6 @@ func Command(stdout, stderr io.Writer, r *reporter.Reporter) *cli.Command {
 				Name:     "ignore-dev",
 				Usage:    "ignore vulnerabilities affecting only development dependencies",
 			},
-			&cli.BoolFlag{
-				Category: vulnCategory,
-				Name:     "maven-fix-management",
-				Usage:    "(pom.xml) also remediate vulnerabilities in dependencyManagement packages that do not appear in the resolved dependency graph",
-			},
-			// Offline database flags, copied from osv-scanner scan
-			&cli.BoolFlag{
-				Name:    "experimental-offline-vulnerabilities",
-				Aliases: []string{"experimental-offline"},
-				Usage:   "checks for vulnerabilities using local databases that are already cached",
-			},
-			&cli.BoolFlag{
-				Name:  "experimental-download-offline-databases",
-				Usage: "downloads vulnerability databases for offline comparison",
-			},
-			&cli.StringFlag{
-				Name:   "experimental-local-db-path",
-				Usage:  "sets the path that local databases should be stored",
-				Hidden: true,
-			},
 		},
 		Action: func(ctx *cli.Context) error {
 			var err error
@@ -194,103 +156,32 @@ func Command(stdout, stderr io.Writer, r *reporter.Reporter) *cli.Command {
 	}
 }
 
-func parseUpgradeConfig(ctx *cli.Context, r reporter.Reporter) upgrade.Config {
-	config := upgrade.NewConfig()
-
-	if ctx.IsSet("disallow-major-upgrades") {
-		r.Warnf("WARNING: `--disallow-major-upgrades` flag is deprecated, use `--upgrade-config minor` instead\n")
-		if ctx.Bool("disallow-major-upgrades") {
-			config.SetDefault(upgrade.Minor)
-		} else {
-			config.SetDefault(upgrade.Major)
-		}
-	}
-	if ctx.IsSet("disallow-package-upgrades") {
-		r.Warnf("WARNING: `--disallow-package-upgrades` flag is deprecated, use `--upgrade-config PKG:none` instead\n")
-		for _, pkg := range ctx.StringSlice("disallow-package-upgrades") {
-			config.Set(pkg, upgrade.None)
-		}
-	}
-
-	for _, spec := range ctx.StringSlice("upgrade-config") {
-		idx := strings.LastIndex(spec, ":")
-		if idx == 0 {
-			r.Warnf("WARNING: `--upgrade-config %s` - skipping empty package name\n", spec)
-			continue
-		}
-		pkg := ""
-		levelStr := spec
-		if idx > 0 {
-			pkg = spec[:idx]
-			levelStr = spec[idx+1:]
-		}
-		var level upgrade.Level
-		switch levelStr {
-		case "major":
-			level = upgrade.Major
-		case "minor":
-			level = upgrade.Minor
-		case "patch":
-			level = upgrade.Patch
-		case "none":
-			level = upgrade.None
-		default:
-			r.Warnf("WARNING: `--upgrade-config %s` - invalid level string '%s'\n", spec, levelStr)
-			continue
-		}
-		if config.Set(pkg, level) { // returns true if was previously set
-			r.Warnf("WARNING: `--upgrade-config %s` - config for package specified multiple times\n", spec)
-		}
-	}
-
-	return config
-}
-
 func action(ctx *cli.Context, stdout, stderr io.Writer) (reporter.Reporter, error) {
-	if !ctx.IsSet("manifest") && !ctx.IsSet("lockfile") {
-		return nil, errors.New("manifest or lockfile is required")
+	// The Action on strategy isn't run when using the default values. Check if the manifest is set.
+	if ctx.Bool("non-interactive") && ctx.String("strategy") == "relock" && !ctx.IsSet("manifest") {
+		return nil, fmt.Errorf("relock strategy requires manifest file")
 	}
 
-	// TODO: This isn't what the reporter is designed for.
-	// Only using r.Infof()/r.Warnf()/r.Errorf() to print to stdout/stderr.
-	r := reporter.NewTableReporter(stdout, stderr, reporter.InfoLevel, false, 0)
+	if !ctx.IsSet("manifest") && !ctx.IsSet("lockfile") {
+		return nil, fmt.Errorf("manifest or lockfile is required")
+	}
 
 	opts := osvFixOptions{
-		Options: remediation.Options{
-			ResolveOpts: resolution.ResolveOpts{
-				MavenManagement: ctx.Bool("maven-fix-management"),
-			},
+		RemediationOptions: remediation.RemediationOptions{
 			IgnoreVulns:   ctx.StringSlice("ignore-vulns"),
 			ExplicitVulns: ctx.StringSlice("vulns"),
 			DevDeps:       !ctx.Bool("ignore-dev"),
 			MinSeverity:   ctx.Float64("min-severity"),
 			MaxDepth:      ctx.Int("max-depth"),
-			UpgradeConfig: parseUpgradeConfig(ctx, r),
+			AvoidPkgs:     ctx.StringSlice("disallow-package-upgrades"),
+			AllowMajor:    !ctx.Bool("disallow-major-upgrades"),
 		},
 		Manifest:  ctx.String("manifest"),
 		Lockfile:  ctx.String("lockfile"),
 		RelockCmd: ctx.String("relock-cmd"),
-	}
-
-	system := resolve.UnknownSystem
-	if opts.Lockfile != "" {
-		rw, err := lockfile.GetReadWriter(opts.Lockfile)
-		if err != nil {
-			return nil, err
-		}
-		opts.LockfileRW = rw
-		system = rw.System()
-	}
-
-	if opts.Manifest != "" {
-		rw, err := manifest.GetReadWriter(opts.Manifest, ctx.String("maven-registry"))
-		if err != nil {
-			return nil, err
-		}
-		opts.ManifestRW = rw
-		// Prefer the manifest's system over the lockfile's.
-		// TODO: make sure they match
-		system = rw.System()
+		Client: client.ResolutionClient{
+			VulnerabilityClient: client.NewOSVClient(),
+		},
 	}
 
 	switch ctx.String("data-source") {
@@ -301,76 +192,51 @@ func action(ctx *cli.Context, stdout, stderr io.Writer) (reporter.Reporter, erro
 		}
 		opts.Client.DependencyClient = cl
 	case "native":
-		switch system {
-		case resolve.NPM:
-			var workDir string
-			// Prefer to use the manifest's directory if available.
-			if opts.Manifest != "" {
-				workDir = filepath.Dir(opts.Manifest)
-			} else {
-				workDir = filepath.Dir(opts.Lockfile)
-			}
-			cl, err := client.NewNpmRegistryClient(workDir)
-			if err != nil {
-				return nil, err
-			}
-			opts.Client.DependencyClient = cl
-		case resolve.Maven:
-			cl, err := client.NewMavenRegistryClient(ctx.String("maven-registry"))
-			if err != nil {
-				return nil, err
-			}
-			opts.Client.DependencyClient = cl
-		case resolve.UnknownSystem:
-			fallthrough
-		default:
-			return nil, fmt.Errorf("native data-source currently unsupported for %s ecosystem", system.String())
+		// TODO: determine ecosystem & client from manifest/lockfile
+		var workDir string
+		// Prefer to use the manifest's directory if available.
+		if opts.Manifest != "" {
+			workDir = filepath.Dir(opts.Manifest)
+		} else {
+			workDir = filepath.Dir(opts.Lockfile)
 		}
-	}
-
-	if ctx.Bool("experimental-offline-vulnerabilities") {
-		var err error
-		opts.Client.VulnerabilityClient, err = client.NewOSVOfflineClient(
-			r,
-			system,
-			ctx.Bool("experimental-download-offline-databases"),
-			ctx.String("experimental-local-db-path"))
+		cl, err := client.NewNpmRegistryClient(workDir)
 		if err != nil {
 			return nil, err
 		}
-	} else {
-		opts.Client.VulnerabilityClient = client.NewOSVClient()
+		opts.Client.DependencyClient = cl
+	}
+
+	if opts.Manifest != "" {
+		rw, err := manifest.GetManifestIO(opts.Manifest)
+		if err != nil {
+			return nil, err
+		}
+		opts.ManifestRW = rw
+	}
+
+	if opts.Lockfile != "" {
+		rw, err := lockfile.GetLockfileIO(opts.Lockfile)
+		if err != nil {
+			return nil, err
+		}
+		opts.LockfileRW = rw
 	}
 
 	if !ctx.Bool("non-interactive") {
 		return nil, interactiveMode(ctx.Context, opts)
 	}
 
+	// TODO: This isn't what the reporter is designed for.
+	// Only using r.Infof() and r.Errorf() to print to stdout & stderr respectively.
+	r := reporter.NewTableReporter(stdout, stderr, reporter.InfoLevel, false, 0)
 	maxUpgrades := ctx.Int("apply-top")
 
-	strategy := ctx.String("strategy")
-
-	if !ctx.IsSet("strategy") {
-		// Choose a default strategy based on the manifest/lockfile provided.
-		switch {
-		case remediation.SupportsRelax(opts.ManifestRW):
-			strategy = "relock"
-		case remediation.SupportsOverride(opts.ManifestRW):
-			strategy = "override"
-		case remediation.SupportsInPlace(opts.LockfileRW):
-			strategy = "in-place"
-		default:
-			return nil, errors.New("no supported remediation strategies for manifest/lockfile")
-		}
-	}
-
-	switch strategy {
+	switch ctx.String("strategy") {
 	case "relock":
 		return r, autoRelock(ctx.Context, r, opts, maxUpgrades)
 	case "in-place":
 		return r, autoInPlace(ctx.Context, r, opts, maxUpgrades)
-	case "override":
-		return r, autoOverride(ctx.Context, r, opts, maxUpgrades)
 	default:
 		// The strategy flag should already be validated by this point.
 		panic(fmt.Sprintf("non-interactive mode attempted to run with unhandled strategy: \"%s\"", ctx.String("strategy")))

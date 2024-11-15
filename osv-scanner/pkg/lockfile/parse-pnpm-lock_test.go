@@ -47,6 +47,7 @@ func TestPnpmLockExtractor_ShouldExtract(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			e := lockfile.PnpmLockExtractor{}
@@ -585,13 +586,4 @@ func TestParsePnpmLock_Files(t *testing.T) {
 			Commit:    "",
 		},
 	})
-}
-
-func TestParsePnpmLock_InvalidPackagePath(t *testing.T) {
-	t.Parallel()
-
-	packages, err := lockfile.ParsePnpmLock("fixtures/pnpm/invalid-package-path.yaml")
-
-	expectErrContaining(t, err, "invalid package path")
-	expectPackages(t, packages, []lockfile.PackageDetails{})
 }

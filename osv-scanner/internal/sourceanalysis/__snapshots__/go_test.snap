@@ -160,11 +160,9 @@
         "aliases": null,
         "experimentalAnalysis": {
           "GO-2021-0053": {
-            "called": false,
-            "unimportant": false
+            "called": false
           }
-        },
-        "max_severity": ""
+        }
       }
     ]
   },
@@ -314,11 +312,9 @@
         "aliases": null,
         "experimentalAnalysis": {
           "GO-2023-1558": {
-            "called": true,
-            "unimportant": false
+            "called": true
           }
-        },
-        "max_severity": ""
+        }
       }
     ]
   },
@@ -469,11 +465,9 @@
         "aliases": null,
         "experimentalAnalysis": {
           "GO-2023-1572": {
-            "called": false,
-            "unimportant": false
+            "called": false
           }
-        },
-        "max_severity": ""
+        }
       }
     ]
   }
@@ -627,8 +621,7 @@
           "GHSA-c3h9-896r-86jm",
           "GO-2021-0053"
         ],
-        "aliases": null,
-        "max_severity": ""
+        "aliases": null
       }
     ]
   },
@@ -764,8 +757,7 @@
           "GHSA-2h6c-j3gf-xp9r",
           "GO-2023-1558"
         ],
-        "aliases": null,
-        "max_severity": ""
+        "aliases": null
       }
     ]
   },
@@ -900,8 +892,7 @@
           "GHSA-qgc7-mgm3-q253",
           "GO-2023-1572"
         ],
-        "aliases": null,
-        "max_severity": ""
+        "aliases": null
       }
     ]
   }

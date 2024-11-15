@@ -10,7 +10,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/ansi"
-	"github.com/charmbracelet/glamour/styles"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/google/osv-scanner/internal/resolution"
 	"github.com/muesli/reflow/wordwrap"
@@ -18,7 +17,7 @@ import (
 
 // ViewModel to display the details of a specific vulnerability
 type vulnInfo struct {
-	vuln        *resolution.Vulnerability
+	vuln        *resolution.ResolutionVuln
 	chainGraphs []ChainGraph
 
 	width  int
@@ -39,11 +38,10 @@ var (
 				Width(10).
 				MarginRight(2).
 				Foreground(ColorPrimary)
-	highlightedVulnInfoHeadingStyle = vulnInfoHeadingStyle.Reverse(true)
+	highlightedVulnInfoHeadingStyle = vulnInfoHeadingStyle.Copy().Reverse(true)
 )
 
-//revive:disable-next-line:unexported-return
-func NewVulnInfo(vuln *resolution.Vulnerability) *vulnInfo {
+func NewVulnInfo(vuln *resolution.ResolutionVuln) *vulnInfo {
 	v := vulnInfo{
 		vuln:           vuln,
 		width:          ViewMinWidth,
@@ -61,9 +59,9 @@ func NewVulnInfo(vuln *resolution.Vulnerability) *vulnInfo {
 
 	// remove the padding/margins from the default markdown style
 	if lipgloss.HasDarkBackground() {
-		v.mdStyle = styles.DarkStyleConfig
+		v.mdStyle = glamour.DarkStyleConfig
 	} else {
-		v.mdStyle = styles.LightStyleConfig
+		v.mdStyle = glamour.LightStyleConfig
 	}
 	*v.mdStyle.Document.Margin = 0
 	v.mdStyle.Document.BlockPrefix = ""
@@ -135,9 +133,9 @@ func (v *vulnInfo) View() string {
 
 	detailWidth := v.width - (vulnInfoHeadingStyle.GetWidth() + vulnInfoHeadingStyle.GetMarginRight())
 
-	vID := v.vuln.OSV.ID
-	sev := RenderSeverity(v.vuln.OSV.Severity)
-	sum := wordwrap.String(v.vuln.OSV.Summary, detailWidth)
+	vID := v.vuln.Vulnerability.ID
+	sev := RenderSeverity(v.vuln.Vulnerability.Severity)
+	sum := wordwrap.String(v.vuln.Vulnerability.Summary, detailWidth)
 
 	var det string
 	r, err := glamour.NewTermRenderer(
@@ -145,7 +143,7 @@ func (v *vulnInfo) View() string {
 		glamour.WithWordWrap(detailWidth),
 	)
 	if err == nil {
-		det, err = r.Render(v.vuln.OSV.Details)
+		det, err = r.Render(v.vuln.Vulnerability.Details)
 	}
 	if err != nil {
 		det = v.fallbackDetails(detailWidth)
@@ -191,7 +189,7 @@ func (v *vulnInfo) detailsOnlyView() string {
 		glamour.WithWordWrap(v.width),
 	)
 	if err == nil {
-		det, err = r.Render(v.vuln.OSV.Details)
+		det, err = r.Render(v.vuln.Vulnerability.Details)
 	}
 	if err != nil {
 		det = v.fallbackDetails(v.width)
@@ -226,5 +224,5 @@ func (v *vulnInfo) headingStyle(idx int) lipgloss.Style {
 
 func (v *vulnInfo) fallbackDetails(width int) string {
 	// Use raw details if markdown rendering fails for whatever reason
-	return wordwrap.String(v.vuln.OSV.Details, width)
+	return wordwrap.String(v.vuln.Vulnerability.Details, width)
 }

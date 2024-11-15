@@ -15,11 +15,6 @@
 name: test
 description: "Runs go tests"
 
-inputs:
-  codecov_token:
-    description: "Token for uploading coverage reports to Codecov"
-    required: true
-
 runs:
   using: composite
   steps:
@@ -29,10 +24,4 @@ runs:
         TEST_ACCEPTANCE: true
       run: ./scripts/run_tests.sh
     - name: Upload coverage to Codecov
-      # codecov is currently being flakey on macOS
-      # https://github.com/codecov/codecov-action/issues/1416
-      if: ${{ runner.os != 'macOS' }}
-      uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4.6.0
-      with:
-        token: ${{ inputs.codecov_token }}
-        fail_ci_if_error: true
+      uses: codecov/codecov-action@ab904c41d6ece82784817410c45d8b8c02684457 # v3.1.6

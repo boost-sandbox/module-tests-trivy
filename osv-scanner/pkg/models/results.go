@@ -111,7 +111,6 @@ type GroupInfo struct {
 	Aliases []string `json:"aliases"`
 	// Map of Vulnerability IDs to AnalysisInfo
 	ExperimentalAnalysis map[string]AnalysisInfo `json:"experimentalAnalysis,omitempty"`
-	MaxSeverity          string                  `json:"max_severity"`
 }
 
 // IsCalled returns true if any analysis performed determines that the vulnerability is being called
@@ -130,10 +129,6 @@ func (groupInfo *GroupInfo) IsCalled() bool {
 	for _, analysis := range groupInfo.ExperimentalAnalysis {
 		if analysis.Called {
 			return true
-		}
-		// TODO(gongh@): For v2, create a separate function `isGroupUnimportant()` to encapsulate this check.
-		if analysis.Unimportant {
-			return false
 		}
 	}
 
@@ -168,15 +163,13 @@ func (v *Vulnerability) FixedVersions() map[Package][]string {
 }
 
 type AnalysisInfo struct {
-	Called      bool `json:"called"`
-	Unimportant bool `json:"unimportant"`
+	Called bool `json:"called"`
 }
 
 // Specific package information
 type PackageInfo struct {
-	Name        string              `json:"name"`
-	Version     string              `json:"version"`
-	Ecosystem   string              `json:"ecosystem"`
-	Commit      string              `json:"commit,omitempty"`
-	ImageOrigin *ImageOriginDetails `json:"imageOrigin,omitempty"`
+	Name      string `json:"name"`
+	Version   string `json:"version"`
+	Ecosystem string `json:"ecosystem"`
+	Commit    string `json:"commit,omitempty"`
 }

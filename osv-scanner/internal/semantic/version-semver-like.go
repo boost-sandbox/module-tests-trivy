@@ -38,6 +38,10 @@ func (v *SemverLikeVersion) fetchComponentsAndBuild(maxComponents int) (Componen
 func ParseSemverLikeVersion(line string, maxComponents int) SemverLikeVersion {
 	v := parseSemverLike(line)
 
+	if maxComponents == -1 {
+		return v
+	}
+
 	components, build := v.fetchComponentsAndBuild(maxComponents)
 
 	return SemverLikeVersion{
@@ -56,6 +60,7 @@ func parseSemverLike(line string) SemverLikeVersion {
 
 	currentCom := ""
 	foundBuild := false
+	emptyComponent := false
 
 	leadingV := strings.HasPrefix(line, "v")
 	line = strings.TrimPrefix(line, "v")
@@ -89,11 +94,15 @@ func parseSemverLike(line string) SemverLikeVersion {
 
 			components = append(components, v)
 			currentCom = ""
+
+			emptyComponent = false
 		}
 
 		// a component terminator means there might be another component
 		// afterwards, so don't start parsing the build string just yet
 		if c == '.' {
+			emptyComponent = true
+
 			continue
 		}
 
@@ -109,6 +118,19 @@ func parseSemverLike(line string) SemverLikeVersion {
 
 		components = append(components, v)
 		currentCom = ""
+		emptyComponent = false
+	}
+
+	// if we ended with an empty component section,
+	// prefix the build string with a '.'
+	if emptyComponent {
+		currentCom = "." + currentCom
+	}
+
+	// if we found no components, then the v wasn't actually leading
+	if len(components) == 0 && leadingV {
+		leadingV = false
+		currentCom = "v" + currentCom
 	}
 
 	return SemverLikeVersion{

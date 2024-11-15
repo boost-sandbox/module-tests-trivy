@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/osv-scanner/internal/config"
 	"github.com/google/osv-scanner/internal/testutility"
+	"github.com/google/osv-scanner/pkg/config"
 	"github.com/google/osv-scanner/pkg/models"
 	"github.com/google/osv-scanner/pkg/reporter"
 )
@@ -37,12 +37,13 @@ func Test_filterResults(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt // Reinitialize for t.Parallel()
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			r := &reporter.VoidReporter{}
-			// configManager looks for osv-scanner.toml in the source path.
+			// ConfigManager looks for osv-scanner.toml in the source path.
 			// Sources in the test input should point to files/folders in the text fixture folder for this to work correctly.
-			configManager := config.Manager{
+			configManager := config.ConfigManager{
 				DefaultConfig: config.Config{},
 				ConfigMap:     make(map[string]config.Config),
 			}
@@ -101,7 +102,7 @@ func Test_scanGit(t *testing.T) {
 		if (err != nil) != tt.wantErr {
 			t.Errorf("scanGit() error = %v, wantErr %v", err, tt.wantErr)
 		}
-		if !cmp.Equal(tt.wantPkg, pkg) {
+		if diff := cmp.Diff(tt.wantPkg, pkg); diff != "" {
 			t.Errorf("scanGit() package = %v, wantPackage %v", pkg, tt.wantPkg)
 		}
 	}

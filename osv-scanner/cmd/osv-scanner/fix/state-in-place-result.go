@@ -40,7 +40,7 @@ func (st *stateInPlaceResult) Init(m model) tea.Cmd {
 	// pre-generate the info views for each option
 	// inPlaceInfo is given to this by stateChooseStrategy when it makes this struct
 	// Get the list of remaining vulns
-	vulns := make([]*resolution.Vulnerability, len(m.inPlaceResult.Unfixable))
+	vulns := make([]*resolution.ResolutionVuln, len(m.inPlaceResult.Unfixable))
 	for i := range m.inPlaceResult.Unfixable {
 		vulns[i] = &m.inPlaceResult.Unfixable[i]
 	}
@@ -49,10 +49,10 @@ func (st *stateInPlaceResult) Init(m model) tea.Cmd {
 	// recompute the vulns fixed by relocking after the in-place update
 	if m.options.Manifest != "" {
 		st.canRelock = true
-		var relockFixes []*resolution.Vulnerability
+		var relockFixes []*resolution.ResolutionVuln
 		for _, v := range vulns {
-			if !slices.ContainsFunc(m.relockBaseRes.Vulns, func(r resolution.Vulnerability) bool {
-				return r.OSV.ID == v.OSV.ID
+			if !slices.ContainsFunc(m.relockBaseRes.Vulns, func(r resolution.ResolutionVuln) bool {
+				return r.Vulnerability.ID == v.Vulnerability.ID
 			}) {
 				relockFixes = append(relockFixes, v)
 			}
@@ -183,7 +183,7 @@ func (st *stateInPlaceResult) View(m model) string {
 	nSelected := 0
 	for _, s := range st.selectedChanges {
 		if s {
-			nSelected++
+			nSelected += 1
 		}
 	}
 
@@ -247,7 +247,7 @@ func (st *stateInPlaceResult) InfoView() string {
 	return v.View()
 }
 
-func (st *stateInPlaceResult) Resize(_, _ int) {}
+func (st *stateInPlaceResult) Resize(w, h int) {}
 
 func (st *stateInPlaceResult) ResizeInfo(w, h int) {
 	st.inPlaceInfo.Resize(w, h)

@@ -47,6 +47,7 @@ func TestMavenLockExtractor_ShouldExtract(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			e := lockfile.MavenLockExtractor{}
@@ -153,7 +154,7 @@ func TestParseMavenLock_WithDependencyManagement(t *testing.T) {
 	expectPackages(t, packages, []lockfile.PackageDetails{
 		{
 			Name:      "io.netty:netty-all",
-			Version:   "4.1.9",
+			Version:   "4.1.42.Final",
 			Ecosystem: lockfile.MavenEcosystem,
 			CompareAs: lockfile.MavenEcosystem,
 		},
@@ -276,6 +277,7 @@ func TestMavenLockDependency_ResolveVersion(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -299,12 +301,6 @@ func TestParseMavenLock_WithScope(t *testing.T) {
 	}
 
 	expectPackages(t, packages, []lockfile.PackageDetails{
-		{
-			Name:      "abc:xyz",
-			Version:   "1.2.3",
-			Ecosystem: lockfile.MavenEcosystem,
-			CompareAs: lockfile.MavenEcosystem,
-		},
 		{
 			Name:      "junit:junit",
 			Version:   "4.12",

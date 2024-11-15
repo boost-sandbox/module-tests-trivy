@@ -188,7 +188,6 @@ func init() {
 	registerExtractor("Gemfile.lock", GemfileLockExtractor{})
 }
 
-// Deprecated: use GemfileLockExtractor.Extract instead
 func ParseGemfileLock(pathToLockfile string) ([]PackageDetails, error) {
 	return extractFromFile(pathToLockfile, GemfileLockExtractor{})
 }
