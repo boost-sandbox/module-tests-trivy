@@ -1,9 +1,25 @@
 name: Trivy smoke tests
 on:
   workflow_dispatch:
-  
+    inputs:
+      log_level:
+        required: true
+        type: choice
+        options:
+        - INFO
+        - DEBUG
+        - TRACE
+      log_verbose:
+        type: boolean
+        default: false    
+      dev_registry_branch: 
+        type: string
+        default: main
+        description: >-
+          Which branch of boostsecurityio/dev-registry to use in dev
+        
 env:
-  BOOST_LOG_LEVEL: INFO
+  BOOST_LOG_LEVEL: ${{ inputs.log_verbose }}
 
 jobs:
   boost:
@@ -19,7 +35,7 @@ jobs:
             api_endpoint: https://api.boostsecurity.io
             api_token_secret_name: BOOST_API_KEY
           - environment: dev
-            registry_url: https://github.com/boostsecurityio/dev-registry.git
+            registry_url: https://github.com/boostsecurityio/dev-registry.git#${{inputs.dev_registry_branch}}
             api_endpoint: https://api.dev.boostsec.io
             api_token_secret_name: BOOST_API_KEY_DEV
     steps:
