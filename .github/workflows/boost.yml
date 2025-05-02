@@ -9,9 +9,6 @@ on:
         - INFO
         - DEBUG
         - TRACE
-      log_verbose:
-        type: boolean
-        default: false    
       dev_registry_branch: 
         type: string
         default: main
@@ -19,7 +16,7 @@ on:
           Which branch of boostsecurityio/dev-registry to use in dev
         
 env:
-  BOOST_LOG_LEVEL: ${{ inputs.log_verbose }}
+  BOOST_LOG_LEVEL: ${{ inputs.log_level }}
 
 jobs:
   boost:
