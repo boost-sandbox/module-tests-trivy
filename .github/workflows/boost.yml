@@ -14,9 +14,6 @@ on:
         default: main
         description: >-
           Which branch of boostsecurityio/dev-registry to use in dev
-        
-env:
-  BOOST_LOG_LEVEL: ${{ inputs.log_level }}
 
 jobs:
   boost:
@@ -48,6 +45,7 @@ jobs:
           api_token: ${{ secrets[matrix.api_token_secret_name] }}
           scan_label: ${{ matrix.target }}
           scan_path: ${{ matrix.target }}
+          log_level: ${{ inputs.log_level }}
         env:
           BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
           
@@ -60,6 +58,7 @@ jobs:
           api_token: ${{ secrets[matrix.api_token_secret_name] }}
           scan_label: ${{ matrix.target }}
           scan_path: ${{ matrix.target }}
+          log_level: ${{ inputs.log_level }}          
         env:
           BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
     
@@ -72,6 +71,7 @@ jobs:
           api_token: ${{ secrets[matrix.api_token_secret_name] }}
           scan_label: ${{ matrix.target }}
           scan_path: ${{ matrix.target }}
+          log_level: ${{ inputs.log_level }}          
         env:
           BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
           
@@ -91,6 +91,7 @@ jobs:
           api_token: ${{ secrets[matrix.api_token_secret_name] }}
           scan_label: ${{ matrix.target }} Docker
           scan_path: ${{ matrix.target }}
+          log_level: ${{ inputs.log_level }}          
         env:
           BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
           BOOST_IMAGE_NAME: ${{ matrix.target }}
@@ -104,6 +105,7 @@ jobs:
           api_token: ${{ secrets[matrix.api_token_secret_name] }}
           scan_label: ${{ matrix.target }} Docker
           scan_path: ${{ matrix.target }}
+          log_level: ${{ inputs.log_level }}          
         env:
           BOOST_SCANNER_REGISTRY_REPO: ${{ matrix.registry_url }}
           BOOST_IMAGE_NAME: ${{ matrix.target }}
