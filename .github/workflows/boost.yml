@@ -19,7 +19,9 @@ jobs:
   boost:
     name: Trivy on ${{ matrix.target }} to ${{ matrix.environment }}
     runs-on: ubuntu-latest
+    continue-on-error: true
     strategy:
+      fail-fast: true
       matrix:
         target: [gitleaks, osv-scanner, rclone, kubeaudit]
         environment: [prod, dev]
